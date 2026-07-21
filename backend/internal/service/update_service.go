@@ -28,9 +28,9 @@ var (
 )
 
 const (
-	updateCacheKey = "update_check_cache"
-	updateCacheTTL = 1200 // 20 minutes
-	githubRepo     = "Wei-Shaw/sub2api"
+	updateCacheTTL      = 1200 // 20 minutes
+	defaultGitHubRepo   = "Wei-Shaw/sub2api"
+	updateRepositoryEnv = "UPDATE_REPOSITORY"
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
@@ -363,7 +363,12 @@ func (s *UpdateService) RollbackToVersion(ctx context.Context, version string) e
 // fetchRollbackCandidates fetches recent releases and keeps the newest
 // maxRollbackVersions entries strictly older than the current version.
 func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubRelease, error) {
-	releases, err := s.githubClient.FetchRecentReleases(ctx, githubRepo, rollbackFetchPageSize)
+	repo, err := updateRepository()
+	if err != nil {
+		return nil, err
+	}
+
+	releases, err := s.githubClient.FetchRecentReleases(ctx, repo, rollbackFetchPageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -400,7 +405,12 @@ func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubR
 }
 
 func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*UpdateInfo, error) {
-	release, err := s.githubClient.FetchLatestRelease(ctx, githubRepo)
+	repo, err := updateRepository()
+	if err != nil {
+		return nil, err
+	}
+
+	release, err := s.githubClient.FetchLatestRelease(ctx, repo)
 	if err != nil {
 		return nil, err
 	}
@@ -594,12 +604,18 @@ func (s *UpdateService) extractBinary(archivePath, destPath string) error {
 }
 
 func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
+	repo, err := updateRepository()
+	if err != nil {
+		return nil, err
+	}
+
 	data, err := s.cache.GetUpdateInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	var cached struct {
+		Repository  string       `json:"repository"`
 		Latest      string       `json:"latest"`
 		ReleaseInfo *ReleaseInfo `json:"release_info"`
 		Timestamp   int64        `json:"timestamp"`
@@ -610,6 +626,9 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 
 	if time.Now().Unix()-cached.Timestamp > updateCacheTTL {
 		return nil, fmt.Errorf("cache expired")
+	}
+	if cached.Repository != repo {
+		return nil, fmt.Errorf("cache belongs to a different update repository")
 	}
 
 	return &UpdateInfo{
@@ -623,11 +642,18 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 }
 
 func (s *UpdateService) saveToCache(ctx context.Context, info *UpdateInfo) {
+	repo, err := updateRepository()
+	if err != nil {
+		return
+	}
+
 	cacheData := struct {
+		Repository  string       `json:"repository"`
 		Latest      string       `json:"latest"`
 		ReleaseInfo *ReleaseInfo `json:"release_info"`
 		Timestamp   int64        `json:"timestamp"`
 	}{
+		Repository:  repo,
 		Latest:      info.LatestVersion,
 		ReleaseInfo: info.ReleaseInfo,
 		Timestamp:   time.Now().Unix(),
@@ -637,12 +663,49 @@ func (s *UpdateService) saveToCache(ctx context.Context, info *UpdateInfo) {
 	_ = s.cache.SetUpdateInfo(ctx, string(data), time.Duration(updateCacheTTL)*time.Second)
 }
 
-// compareVersions compares two semantic versions
+// updateRepository returns the GitHub repository used by the administrator
+// update flow. Deployments can set UPDATE_REPOSITORY to their own fork so an
+// update never silently replaces local customizations with an upstream binary.
+func updateRepository() (string, error) {
+	repo := strings.TrimSpace(os.Getenv(updateRepositoryEnv))
+	if repo == "" {
+		return defaultGitHubRepo, nil
+	}
+
+	parts := strings.Split(repo, "/")
+	if len(parts) != 2 || !isGitHubRepositoryPart(parts[0]) || !isGitHubRepositoryPart(parts[1]) {
+		return "", fmt.Errorf("invalid %s: expected GitHub owner/repository", updateRepositoryEnv)
+	}
+	return repo, nil
+}
+
+// isGitHubRepositoryPart intentionally accepts the characters valid in GitHub
+// owner/repository identifiers while rejecting URL syntax, whitespace, and path
+// separators before the value is interpolated into a GitHub API URL.
+func isGitHubRepositoryPart(value string) bool {
+	if value == "" || len(value) > 100 {
+		return false
+	}
+	for _, char := range value {
+		if (char >= 'a' && char <= 'z') ||
+			(char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') ||
+			char == '-' || char == '_' || char == '.' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// compareVersions compares up to four numeric version components. The fourth
+// component allows a fork to publish a custom patch (for example 0.1.162.1)
+// without colliding with the upstream 0.1.162 release.
 func compareVersions(current, latest string) int {
 	currentParts := parseVersion(current)
 	latestParts := parseVersion(latest)
 
-	for i := 0; i < 3; i++ {
+	for i := range currentParts {
 		if currentParts[i] < latestParts[i] {
 			return -1
 		}
@@ -653,11 +716,11 @@ func compareVersions(current, latest string) int {
 	return 0
 }
 
-func parseVersion(v string) [3]int {
+func parseVersion(v string) [4]int {
 	v = strings.TrimPrefix(v, "v")
 	parts := strings.Split(v, ".")
-	result := [3]int{0, 0, 0}
-	for i := 0; i < len(parts) && i < 3; i++ {
+	result := [4]int{0, 0, 0, 0}
+	for i := 0; i < len(parts) && i < len(result); i++ {
 		if parsed, err := strconv.Atoi(parts[i]); err == nil {
 			result[i] = parsed
 		}

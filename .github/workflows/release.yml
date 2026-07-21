@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*'
+      # Four-part tags belong to this fork's Custom release workflow.
+      - '!v*.*.*.*'
   workflow_dispatch:
     inputs:
       tag:

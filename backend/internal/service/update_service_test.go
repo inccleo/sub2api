@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 
@@ -31,13 +32,17 @@ type updateServiceGitHubClientStub struct {
 	release        *GitHubRelease
 	recentReleases []*GitHubRelease
 	recentErr      error
+	latestRepo     string
+	recentRepo     string
 }
 
-func (s *updateServiceGitHubClientStub) FetchLatestRelease(context.Context, string) (*GitHubRelease, error) {
+func (s *updateServiceGitHubClientStub) FetchLatestRelease(_ context.Context, repo string) (*GitHubRelease, error) {
+	s.latestRepo = repo
 	return s.release, nil
 }
 
-func (s *updateServiceGitHubClientStub) FetchRecentReleases(context.Context, string, int) ([]*GitHubRelease, error) {
+func (s *updateServiceGitHubClientStub) FetchRecentReleases(_ context.Context, repo string, _ int) ([]*GitHubRelease, error) {
+	s.recentRepo = repo
 	return s.recentReleases, s.recentErr
 }
 
@@ -67,6 +72,64 @@ func TestUpdateServicePerformUpdateNoUpdateReturnsSentinel(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrNoUpdateAvailable))
 	require.ErrorIs(t, err, ErrNoUpdateAvailable)
+}
+
+func TestUpdateServiceUsesConfiguredRepository(t *testing.T) {
+	t.Setenv(updateRepositoryEnv, "inccleo/sub2api")
+	client := &updateServiceGitHubClientStub{
+		release: &GitHubRelease{TagName: "v0.1.162.1", Name: "v0.1.162.1"},
+	}
+	svc := NewUpdateService(&updateServiceCacheStub{}, client, "0.1.162", "release")
+
+	info, err := svc.CheckUpdate(context.Background(), true)
+
+	require.NoError(t, err)
+	require.Equal(t, "inccleo/sub2api", client.latestRepo)
+	require.True(t, info.HasUpdate)
+}
+
+func TestUpdateServiceIgnoresCacheFromAnotherRepository(t *testing.T) {
+	t.Setenv(updateRepositoryEnv, "inccleo/sub2api")
+	cache := &updateServiceCacheStub{data: `{"repository":"Wei-Shaw/sub2api","latest":"9.9.9","timestamp":` + strconv.FormatInt(time.Now().Unix(), 10) + `}`}
+	client := &updateServiceGitHubClientStub{
+		release: &GitHubRelease{TagName: "v0.1.162.1", Name: "v0.1.162.1"},
+	}
+	svc := NewUpdateService(cache, client, "0.1.162", "release")
+
+	_, err := svc.CheckUpdate(context.Background(), false)
+
+	require.NoError(t, err)
+	require.Equal(t, "inccleo/sub2api", client.latestRepo)
+}
+
+func TestUpdateServiceRollbackQueriesConfiguredRepository(t *testing.T) {
+	t.Setenv(updateRepositoryEnv, "inccleo/sub2api")
+	client := &updateServiceGitHubClientStub{
+		recentReleases: []*GitHubRelease{
+			{TagName: "v0.1.162.1"},
+			{TagName: "v0.1.162"},
+		},
+	}
+	svc := NewUpdateService(&updateServiceCacheStub{}, client, "0.1.162.1", "release")
+
+	_, err := svc.ListRollbackVersions(context.Background())
+
+	require.NoError(t, err)
+	require.Equal(t, "inccleo/sub2api", client.recentRepo)
+}
+
+func TestUpdateRepositoryRejectsUnsafeValues(t *testing.T) {
+	t.Setenv(updateRepositoryEnv, "inccleo/sub2api?redirect=example")
+
+	_, err := updateRepository()
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), updateRepositoryEnv)
+}
+
+func TestCompareVersionsSupportsCustomPatchComponent(t *testing.T) {
+	require.Less(t, compareVersions("0.1.162", "0.1.162.1"), 0)
+	require.Greater(t, compareVersions("0.1.162.2", "0.1.162.1"), 0)
 }
 
 func newRollbackTestService(current string, releases []*GitHubRelease) *UpdateService {

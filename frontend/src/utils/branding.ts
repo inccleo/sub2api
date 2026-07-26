@@ -1,11 +1,13 @@
 import { sanitizeUrl } from '@/utils/url'
 
-export function updateFavicon(logoUrl: string): void {
-  const sanitizedLogoUrl = sanitizeUrl(logoUrl, {
+const DEFAULT_FAVICON_URL = '/logo.svg'
+
+export function updateFavicon(iconUrl: string = DEFAULT_FAVICON_URL): void {
+  const sanitizedIconUrl = sanitizeUrl(iconUrl, {
     allowRelative: true,
     allowDataUrl: true,
   })
-  if (!sanitizedLogoUrl) {
+  if (!sanitizedIconUrl) {
     return
   }
 
@@ -16,6 +18,6 @@ export function updateFavicon(logoUrl: string): void {
     document.head.appendChild(link)
   }
 
-  link.type = sanitizedLogoUrl.endsWith('.svg') ? 'image/svg+xml' : 'image/x-icon'
-  link.href = sanitizedLogoUrl
+  link.type = sanitizedIconUrl.endsWith('.svg') ? 'image/svg+xml' : 'image/x-icon'
+  link.href = sanitizedIconUrl
 }

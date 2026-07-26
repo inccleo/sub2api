@@ -48,7 +48,9 @@ async function bootstrap() {
   if (appStore.siteName && appStore.siteName !== 'Sub2API') {
     document.title = `${appStore.siteName} - AI API Gateway`
   }
-  updateFavicon(appStore.siteLogo)
+  // The sidebar uses the uploaded horizontal logo; the browser tab keeps a
+  // dedicated square mark so wide artwork is never squeezed into a favicon.
+  updateFavicon()
 
   await initI18n()
 

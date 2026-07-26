@@ -31,9 +31,9 @@
         <!-- Custom Logo or Default Logo -->
         <template v-if="settingsLoaded">
           <div
-            class="mb-4 inline-flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl shadow-lg shadow-primary-500/30"
+            class="mb-4 inline-flex h-16 w-44 items-center justify-center overflow-hidden rounded-xl"
           >
-            <img :src="siteLogo || '/logo.svg'" alt="Logo" class="h-full w-full object-contain" />
+            <img :src="siteLogo || '/logo.svg'" alt="Logo" class="max-h-full max-w-full object-contain" />
           </div>
           <h1 class="text-gradient mb-2 text-3xl font-bold">
             {{ siteName }}

@@ -11,6 +11,59 @@ import (
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
+func TestShouldUseAlipayMobilePrecreate(t *testing.T) {
+	t.Parallel()
+
+	enabled := &PaymentConfig{AlipayMobilePrecreateDeepLink: true}
+	officialAlipay := &payment.InstanceSelection{ProviderKey: payment.TypeAlipay}
+
+	tests := []struct {
+		name string
+		req  CreateOrderRequest
+		cfg  *PaymentConfig
+		sel  *payment.InstanceSelection
+		want bool
+	}{
+		{name: "mobile official alipay with switch", req: CreateOrderRequest{IsMobile: true}, cfg: enabled, sel: officialAlipay, want: true},
+		{name: "desktop remains unchanged", req: CreateOrderRequest{IsMobile: false}, cfg: enabled, sel: officialAlipay, want: false},
+		{name: "switch disabled keeps wap", req: CreateOrderRequest{IsMobile: true}, cfg: &PaymentConfig{}, sel: officialAlipay, want: false},
+		{name: "other provider remains unchanged", req: CreateOrderRequest{IsMobile: true}, cfg: enabled, sel: &payment.InstanceSelection{ProviderKey: payment.TypeEasyPay}, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := shouldUseAlipayMobilePrecreate(tt.req, tt.cfg, tt.sel); got != tt.want {
+				t.Fatalf("shouldUseAlipayMobilePrecreate() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsOfficialAlipayProviderInstance(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		instance *dbent.PaymentProviderInstance
+		want     bool
+	}{
+		{name: "nil instance", instance: nil, want: false},
+		{name: "official alipay", instance: &dbent.PaymentProviderInstance{ProviderKey: payment.TypeAlipay}, want: true},
+		{name: "normalized official alipay", instance: &dbent.PaymentProviderInstance{ProviderKey: " ALIPAY "}, want: true},
+		{name: "easypay alipay route", instance: &dbent.PaymentProviderInstance{ProviderKey: payment.TypeEasyPay}, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isOfficialAlipayProviderInstance(tt.instance); got != tt.want {
+				t.Fatalf("isOfficialAlipayProviderInstance() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildCreateOrderResponseDefaultsToOrderCreated(t *testing.T) {
 	t.Parallel()
 
@@ -235,6 +288,34 @@ func TestCalculateCreditedBalanceStillUsesRechargeMultiplier(t *testing.T) {
 	got = calculateCreditedBalance(5, 10)
 	if got != 50 {
 		t.Fatalf("credited balance = %v, want 50", got)
+	}
+}
+
+func TestRechargePackagesIncreaseBonusByTier(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		amount float64
+		bonus  float64
+	}{
+		{amount: 50, bonus: 0},
+		{amount: 100, bonus: 20},
+		{amount: 500, bonus: 150},
+		{amount: 1000, bonus: 400},
+		{amount: 88, bonus: 0},
+	}
+
+	for _, tt := range tests {
+		if got := rechargeBonusForAmount(tt.amount); got != tt.bonus {
+			t.Fatalf("rechargeBonusForAmount(%v) = %v, want %v", tt.amount, got, tt.bonus)
+		}
+	}
+
+	if got := calculateCreditedBalanceWithBonus(100, 20, 1); got != 120 {
+		t.Fatalf("credited balance with bonus = %v, want 120", got)
+	}
+	if got := calculateCreditedBalanceWithBonus(500, 150, 0.14); got != 91 {
+		t.Fatalf("converted credited balance with bonus = %v, want 91", got)
 	}
 }
 

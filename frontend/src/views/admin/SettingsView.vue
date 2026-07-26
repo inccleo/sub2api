@@ -4189,6 +4189,90 @@
             </div>
           </div>
 
+          <!-- Ollama Cloud Usage Settings -->
+          <div class="card" data-testid="ollama-cloud-usage-global-settings">
+            <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.ollamaCloudUsage.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.ollamaCloudUsage.description") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <div v-if="ollamaCloudUsageLoading" class="flex items-center gap-2 text-gray-500">
+                <div class="h-4 w-4 animate-spin rounded-full border-b-2 border-primary-600"></div>
+                {{ t("common.loading") }}
+              </div>
+              <template v-else>
+                <div class="flex items-center justify-between gap-4">
+                  <div>
+                    <label class="font-medium text-gray-900 dark:text-white">
+                      {{ t("admin.settings.ollamaCloudUsage.enabled") }}
+                    </label>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.ollamaCloudUsage.enabledHint") }}
+                    </p>
+                  </div>
+                  <Toggle
+                    v-model="ollamaCloudUsageForm.enabled"
+                    :aria-label="t('admin.settings.ollamaCloudUsage.enabled')"
+                    data-testid="ollama-cloud-usage-global-enabled"
+                  />
+                </div>
+                <div v-if="ollamaCloudUsageForm.enabled" class="space-y-4 border-t border-gray-100 pt-4 dark:border-dark-700">
+                  <div>
+                    <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300" for="ollama-cloud-usage-debounce">
+                      {{ t("admin.settings.ollamaCloudUsage.debounceMinutes") }}
+                    </label>
+                    <input
+                      id="ollama-cloud-usage-debounce"
+                      v-model.number="ollamaCloudUsageForm.debounce_minutes"
+                      type="number"
+                      min="1"
+                      max="60"
+                      class="input w-32"
+                      data-testid="ollama-cloud-usage-global-debounce"
+                      @keydown.enter.prevent="saveOllamaCloudUsageSettings"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.ollamaCloudUsage.debounceHint") }}
+                    </p>
+                  </div>
+                  <div>
+                    <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300" for="ollama-cloud-usage-interval">
+                      {{ t("admin.settings.ollamaCloudUsage.intervalMinutes") }}
+                    </label>
+                    <input
+                      id="ollama-cloud-usage-interval"
+                      v-model.number="ollamaCloudUsageForm.interval_minutes"
+                      type="number"
+                      min="15"
+                      max="1440"
+                      class="input w-32"
+                      data-testid="ollama-cloud-usage-global-interval"
+                      @keydown.enter.prevent="saveOllamaCloudUsageSettings"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.ollamaCloudUsage.intervalHint") }}
+                    </p>
+                  </div>
+                </div>
+                <div class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700">
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-sm"
+                    :disabled="ollamaCloudUsageSaving"
+                    data-testid="ollama-cloud-usage-global-save"
+                    @click="saveOllamaCloudUsageSettings"
+                  >
+                    {{ ollamaCloudUsageSaving ? t("common.saving") : t("common.save") }}
+                  </button>
+                </div>
+              </template>
+            </div>
+          </div>
+
           <!-- Gateway Scheduling Settings -->
           <div class="card">
             <div
@@ -5614,6 +5698,7 @@
                 <ImageUpload
                   v-model="form.site_logo"
                   mode="image"
+                  shape="wide"
                   :upload-label="t('admin.settings.site.uploadImage')"
                   :remove-label="t('admin.settings.site.remove')"
                   :hint="t('admin.settings.site.logoHint')"
@@ -7035,6 +7120,38 @@
                       }}</span>
                     </div>
                   </div>
+                  <div>
+                    <label class="input-label">{{
+                      t("admin.settings.payment.alipayMobilePrecreateDeepLink")
+                    }}</label>
+                    <div class="flex items-center gap-2">
+                      <button
+                        type="button"
+                        :class="[
+                          'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                          form.payment_alipay_mobile_precreate_deep_link
+                            ? 'bg-primary-500'
+                            : 'bg-gray-300 dark:bg-dark-600',
+                        ]"
+                        @click="
+                          form.payment_alipay_mobile_precreate_deep_link =
+                            !form.payment_alipay_mobile_precreate_deep_link
+                        "
+                      >
+                        <span
+                          :class="[
+                            'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                            form.payment_alipay_mobile_precreate_deep_link
+                              ? 'translate-x-5'
+                              : 'translate-x-0',
+                          ]"
+                        />
+                      </button>
+                      <span class="text-sm text-gray-500 dark:text-gray-400">{{
+                        t("admin.settings.payment.alipayMobilePrecreateDeepLinkHint")
+                      }}</span>
+                    </div>
+                  </div>
                 </div>
                 <!-- Row 4: Enabled payment types (provider badges like sub2apipay) -->
                 <div>
@@ -7110,6 +7227,22 @@
                       "
                     ></textarea>
                   </div>
+                </div>
+                <div>
+                  <label class="input-label">{{
+                    t("admin.settings.payment.enterpriseQRCode")
+                  }}</label>
+                  <ImageUpload
+                    v-model="form.payment_enterprise_qr_code_url"
+                    :upload-label="t('admin.settings.site.uploadImage')"
+                    :remove-label="t('admin.settings.site.remove')"
+                    :placeholder="
+                      t('admin.settings.payment.enterpriseQRCodePlaceholder')
+                    "
+                  />
+                  <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                    {{ t("admin.settings.payment.enterpriseQRCodeHint") }}
+                  </p>
                 </div>
               </template>
             </div>
@@ -7833,6 +7966,14 @@ const upstreamBillingProbeForm = reactive({
   interval_minutes: 30,
 });
 
+const ollamaCloudUsageLoading = ref(true);
+const ollamaCloudUsageSaving = ref(false);
+const ollamaCloudUsageForm = reactive({
+  enabled: false,
+  interval_minutes: 60,
+  debounce_minutes: 1,
+});
+
 // Overload Cooldown (529) 状态
 const overloadCooldownLoading = ref(true);
 const overloadCooldownSaving = ref(false);
@@ -8416,6 +8557,7 @@ const form = reactive<SettingsForm>({
   payment_enabled_types: [],
   payment_help_image_url: "",
   payment_help_text: "",
+  payment_enterprise_qr_code_url: "",
   payment_product_name_prefix: "",
   payment_product_name_suffix: "",
   payment_load_balance_strategy: "round-robin",
@@ -8425,6 +8567,7 @@ const form = reactive<SettingsForm>({
   payment_cancel_rate_limit_unit: "day",
   payment_cancel_rate_limit_window_mode: "rolling",
   payment_alipay_force_qrcode: false,
+  payment_alipay_mobile_precreate_deep_link: false,
   table_default_page_size: tablePageSizeDefault,
   table_page_size_options: [10, 20, 50, 100],
   custom_menu_items: [] as Array<{
@@ -10087,6 +10230,8 @@ async function saveSettings() {
       payment_product_name_suffix: form.payment_product_name_suffix,
       payment_help_image_url: form.payment_help_image_url,
       payment_help_text: form.payment_help_text,
+      payment_enterprise_qr_code_url:
+        form.payment_enterprise_qr_code_url,
       payment_cancel_rate_limit_enabled: form.payment_cancel_rate_limit_enabled,
       payment_cancel_rate_limit_max:
         Number(form.payment_cancel_rate_limit_max) || 10,
@@ -10096,6 +10241,8 @@ async function saveSettings() {
       payment_cancel_rate_limit_window_mode:
         form.payment_cancel_rate_limit_window_mode,
       payment_alipay_force_qrcode: form.payment_alipay_force_qrcode,
+      payment_alipay_mobile_precreate_deep_link:
+        form.payment_alipay_mobile_precreate_deep_link,
       openai_low_upstream_rate_priority_enabled:
         form.openai_low_upstream_rate_priority_enabled,
       openai_oauth_scheduling_rate_multiplier:
@@ -10443,6 +10590,37 @@ async function saveUpstreamBillingProbeSettings() {
     );
   } finally {
     upstreamBillingProbeSaving.value = false;
+  }
+}
+
+async function loadOllamaCloudUsageSettings() {
+  ollamaCloudUsageLoading.value = true;
+  try {
+    Object.assign(
+      ollamaCloudUsageForm,
+      await adminAPI.accounts.getOllamaCloudUsageSettings(),
+    );
+  } catch (_error: unknown) {
+    // Keep the fail-safe disabled defaults when this optional setting cannot be loaded.
+  } finally {
+    ollamaCloudUsageLoading.value = false;
+  }
+}
+
+async function saveOllamaCloudUsageSettings() {
+  ollamaCloudUsageSaving.value = true;
+  try {
+    const updated = await adminAPI.accounts.updateOllamaCloudUsageSettings({
+      ...ollamaCloudUsageForm,
+    });
+    Object.assign(ollamaCloudUsageForm, updated);
+    appStore.showSuccess(t("admin.settings.ollamaCloudUsage.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(error, t("admin.settings.ollamaCloudUsage.saveFailed")),
+    );
+  } finally {
+    ollamaCloudUsageSaving.value = false;
   }
 }
 
@@ -11143,6 +11321,7 @@ onMounted(() => {
   loadSubscriptionGroups();
   loadAdminApiKey();
   loadUpstreamBillingProbeSettings();
+  loadOllamaCloudUsageSettings();
   loadOverloadCooldownSettings();
   loadRateLimit429CooldownSettings();
   loadStreamTimeoutSettings();
@@ -11604,7 +11783,7 @@ watch(
   height: 2px;
   border-radius: 9999px;
   content: "";
-  background: linear-gradient(90deg, #14b8a6, #0ea5e9);
+  background: linear-gradient(90deg, #356df3, #4a90ff);
 }
 
 .settings-tab-icon {

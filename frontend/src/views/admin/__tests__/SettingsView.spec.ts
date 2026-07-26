@@ -328,6 +328,10 @@ const ImageUploadStub = defineComponent({
       type: String,
       default: "",
     },
+    shape: {
+      type: String,
+      default: "square",
+    },
   },
   setup(props) {
     return () =>
@@ -337,6 +341,7 @@ const ImageUploadStub = defineComponent({
         "data-upload-label": props.uploadLabel,
         "data-remove-label": props.removeLabel,
         "data-placeholder": props.placeholder,
+        "data-shape": props.shape,
       });
   },
 });
@@ -456,6 +461,7 @@ const baseSettingsResponse = {
   payment_product_name_suffix: "",
   payment_help_image_url: "",
   payment_help_text: "",
+  payment_enterprise_qr_code_url: "",
   payment_cancel_rate_limit_enabled: false,
   payment_cancel_rate_limit_max: 10,
   payment_cancel_rate_limit_window: 1,
@@ -670,6 +676,18 @@ describe("admin SettingsView payment visible method controls", () => {
 
     expect(wrapper.text()).not.toContain("可见方式");
     expect(wrapper.text()).not.toContain("支付来源");
+  });
+
+  it("uses a wide preview for the site logo uploader", async () => {
+    const wrapper = mountView();
+
+    await flushPromises();
+
+    const wideUpload = wrapper
+      .findAll(".image-upload-stub")
+      .find((node) => node.attributes("data-shape") === "wide");
+
+    expect(wideUpload).toBeDefined();
   });
 
   it("loads, edits, validates, and saves forwarded client-IP headers", async () => {

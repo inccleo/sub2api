@@ -77,6 +77,7 @@ const props = withDefaults(defineProps<{
   modelValue: string
   mode?: 'image' | 'svg'
   size?: 'sm' | 'md'
+  shape?: 'square' | 'wide'
   uploadLabel?: string
   removeLabel?: string
   hint?: string
@@ -84,6 +85,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   mode: 'image',
   size: 'md',
+  shape: 'square',
   uploadLabel: 'Upload',
   removeLabel: 'Remove',
   hint: '',
@@ -102,8 +104,14 @@ const sanitizedValue = computed(() =>
   props.mode === 'svg' ? sanitizeSvg(props.modelValue ?? '') : ''
 )
 
-const previewSizeClass = computed(() => props.size === 'sm' ? 'h-14 w-14' : 'h-20 w-20')
-const innerSizeClass = computed(() => props.size === 'sm' ? 'h-7 w-7' : 'h-12 w-12')
+const previewSizeClass = computed(() => {
+  if (props.shape === 'wide') return props.size === 'sm' ? 'h-14 w-32' : 'h-20 w-44'
+  return props.size === 'sm' ? 'h-14 w-14' : 'h-20 w-20'
+})
+const innerSizeClass = computed(() => {
+  if (props.shape === 'wide') return props.size === 'sm' ? 'h-7 w-24' : 'h-12 w-36'
+  return props.size === 'sm' ? 'h-7 w-7' : 'h-12 w-12'
+})
 const placeholderSizeClass = computed(() => props.size === 'sm' ? 'h-5 w-5' : 'h-8 w-8')
 
 function handleUpload(event: Event) {

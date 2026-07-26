@@ -291,6 +291,34 @@ func TestCalculateCreditedBalanceStillUsesRechargeMultiplier(t *testing.T) {
 	}
 }
 
+func TestRechargePackagesIncreaseBonusByTier(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		amount float64
+		bonus  float64
+	}{
+		{amount: 50, bonus: 0},
+		{amount: 100, bonus: 20},
+		{amount: 500, bonus: 150},
+		{amount: 1000, bonus: 400},
+		{amount: 88, bonus: 0},
+	}
+
+	for _, tt := range tests {
+		if got := rechargeBonusForAmount(tt.amount); got != tt.bonus {
+			t.Fatalf("rechargeBonusForAmount(%v) = %v, want %v", tt.amount, got, tt.bonus)
+		}
+	}
+
+	if got := calculateCreditedBalanceWithBonus(100, 20, 1); got != 120 {
+		t.Fatalf("credited balance with bonus = %v, want 120", got)
+	}
+	if got := calculateCreditedBalanceWithBonus(500, 150, 0.14); got != 91 {
+		t.Fatalf("converted credited balance with bonus = %v, want 91", got)
+	}
+}
+
 func TestCalculateCreateOrderPayAmountRejectsFractionalZeroDecimal(t *testing.T) {
 	t.Parallel()
 

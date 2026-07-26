@@ -5698,6 +5698,7 @@
                 <ImageUpload
                   v-model="form.site_logo"
                   mode="image"
+                  shape="wide"
                   :upload-label="t('admin.settings.site.uploadImage')"
                   :remove-label="t('admin.settings.site.remove')"
                   :hint="t('admin.settings.site.logoHint')"
@@ -7227,6 +7228,22 @@
                     ></textarea>
                   </div>
                 </div>
+                <div>
+                  <label class="input-label">{{
+                    t("admin.settings.payment.enterpriseQRCode")
+                  }}</label>
+                  <ImageUpload
+                    v-model="form.payment_enterprise_qr_code_url"
+                    :upload-label="t('admin.settings.site.uploadImage')"
+                    :remove-label="t('admin.settings.site.remove')"
+                    :placeholder="
+                      t('admin.settings.payment.enterpriseQRCodePlaceholder')
+                    "
+                  />
+                  <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                    {{ t("admin.settings.payment.enterpriseQRCodeHint") }}
+                  </p>
+                </div>
               </template>
             </div>
           </div>
@@ -8540,6 +8557,7 @@ const form = reactive<SettingsForm>({
   payment_enabled_types: [],
   payment_help_image_url: "",
   payment_help_text: "",
+  payment_enterprise_qr_code_url: "",
   payment_product_name_prefix: "",
   payment_product_name_suffix: "",
   payment_load_balance_strategy: "round-robin",
@@ -10212,6 +10230,8 @@ async function saveSettings() {
       payment_product_name_suffix: form.payment_product_name_suffix,
       payment_help_image_url: form.payment_help_image_url,
       payment_help_text: form.payment_help_text,
+      payment_enterprise_qr_code_url:
+        form.payment_enterprise_qr_code_url,
       payment_cancel_rate_limit_enabled: form.payment_cancel_rate_limit_enabled,
       payment_cancel_rate_limit_max:
         Number(form.payment_cancel_rate_limit_max) || 10,
@@ -11763,7 +11783,7 @@ watch(
   height: 2px;
   border-radius: 9999px;
   content: "";
-  background: linear-gradient(90deg, #14b8a6, #0ea5e9);
+  background: linear-gradient(90deg, #356df3, #4a90ff);
 }
 
 .settings-tab-icon {

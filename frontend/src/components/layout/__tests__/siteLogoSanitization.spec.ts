@@ -29,4 +29,12 @@ describe('site_logo sanitization', () => {
       expect(src).toContain('allowDataUrl: true')
     }
   })
+
+  it('uses the wide logo as the sidebar brand and places the version below it', () => {
+    expect(sidebarSource).not.toContain('sidebar-brand-title')
+    expect(sidebarSource).not.toContain('{{ siteName }}')
+    expect(sidebarSource.indexOf('<VersionBadge')).toBeGreaterThan(
+      sidebarSource.indexOf('sidebar-logo-wide')
+    )
+  })
 })

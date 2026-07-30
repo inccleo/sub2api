@@ -7,25 +7,28 @@
     ]"
   >
     <!-- Logo/Brand -->
-    <div class="sidebar-header" :class="{ 'sidebar-header-collapsed': sidebarCollapsed }">
-      <!-- Custom Logo or Default Logo -->
-      <router-link
-        :to="homePath"
-        class="sidebar-logo flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl shadow-glow transition-opacity hover:opacity-80"
-        @click="handleMenuItemClick(homePath)"
-      >
-        <img v-if="settingsLoaded" :src="siteLogo || '/logo.svg'" alt="Logo" class="h-full w-full object-contain" />
-      </router-link>
-      <div class="sidebar-brand" :class="{ 'sidebar-brand-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">
+    <div
+      class="sidebar-header"
+      :class="sidebarCollapsed ? 'sidebar-header-collapsed' : 'sidebar-header-expanded'"
+    >
+      <div class="flex flex-col items-start justify-center" :class="{ 'w-full': !sidebarCollapsed }">
         <router-link
           :to="homePath"
-          class="sidebar-brand-title text-lg font-bold text-gray-900 transition-colors hover:text-primary-600 dark:text-white dark:hover:text-primary-400"
+      class="sidebar-logo flex items-center justify-center overflow-hidden rounded-lg transition-all hover:opacity-80"
+          :class="sidebarCollapsed ? 'sidebar-logo-collapsed h-5 w-10' : 'sidebar-logo-wide h-12 w-56'"
           @click="handleMenuItemClick(homePath)"
         >
-          {{ siteName }}
+          <img
+            v-if="settingsLoaded"
+            :src="siteLogo || '/logo.svg'"
+            alt="Logo"
+            class="max-h-full max-w-full object-contain"
+            :class="{ 'sidebar-logo-dark': isDark }"
+          />
         </router-link>
-        <!-- Version Badge -->
-        <VersionBadge :version="siteVersion" />
+        <div v-if="!sidebarCollapsed" class="mt-0.5">
+          <VersionBadge :version="siteVersion" />
+        </div>
       </div>
     </div>
 
@@ -256,7 +259,6 @@ const homePath = computed(() => (isAdmin.value ? '/admin/dashboard' : '/dashboar
 const expandedGroups = ref<Set<string>>(new Set())
 
 // Site settings from appStore (cached, no flicker)
-const siteName = computed(() => appStore.siteName)
 const siteLogo = computed(() => sanitizeUrl(appStore.siteLogo || '', { allowRelative: true, allowDataUrl: true }))
 const siteVersion = computed(() => appStore.siteVersion)
 const settingsLoaded = computed(() => appStore.publicSettingsLoaded)
@@ -957,40 +959,44 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .sidebar-logo {
-  flex: 0 0 2.25rem;
-  min-width: 2.25rem;
+  flex: none;
+  min-width: 0;
+}
+
+.sidebar-logo-wide {
+  width: 14rem;
+  min-width: 14rem;
+}
+
+.sidebar-logo-collapsed {
+  width: 2.5rem;
+  min-width: 2.5rem;
+  justify-content: flex-start;
+}
+
+.sidebar-logo-collapsed img {
+  width: auto;
+  max-width: none;
+  height: 1.25rem;
+}
+
+.sidebar-logo-dark {
+  filter: brightness(2.4) saturate(0.9);
+}
+
+.sidebar-header-expanded {
+  height: 6rem;
+  align-items: flex-start;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
 }
 
 .sidebar-header-collapsed {
   gap: 0;
-  padding-left: 1.125rem;
-  padding-right: 1.125rem;
-}
-
-.sidebar-brand {
-  min-width: 0;
-  flex: 1 1 auto;
-  white-space: nowrap;
-  transition:
-    max-width 0.22s ease,
-    opacity 0.14s ease,
-    transform 0.14s ease;
-  max-width: 12rem;
-}
-
-.sidebar-brand-collapsed {
-  max-width: 0;
-  overflow: hidden;
-  opacity: 0;
-  transform: translateX(-4px);
-  pointer-events: none;
-}
-
-.sidebar-brand-title {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  padding-left: 1rem;
+  padding-right: 1rem;
 }
 
 .sidebar-link-collapsed {

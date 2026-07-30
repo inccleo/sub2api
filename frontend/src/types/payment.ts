@@ -53,6 +53,11 @@ export interface MethodLimit {
   available: boolean
 }
 
+export interface RechargePackage {
+  amount: number
+  bonus: number
+}
+
 /** Response from /payment/limits API */
 export interface MethodLimitsResponse {
   methods: Record<string, MethodLimit>
@@ -66,6 +71,7 @@ export interface CheckoutInfoResponse {
   global_min: number
   global_max: number
   plans: SubscriptionPlan[]
+  recharge_packages: RechargePackage[]
   balance_disabled: boolean
   balance_recharge_multiplier: number
   /** Subscription CNY conversion rate (1 USD = X CNY); 0 = disabled, plan price is charged as-is */
@@ -73,9 +79,12 @@ export interface CheckoutInfoResponse {
   recharge_fee_rate: number
   help_text: string
   help_image_url: string
+  enterprise_qr_code_url: string
   stripe_publishable_key: string
   /** When true, Alipay payments on mobile always show the QR code instead of redirecting */
   alipay_force_qrcode?: boolean
+  /** When true, official Alipay mobile orders use precreate plus an Alipay app deep link */
+  alipay_mobile_precreate_deep_link?: boolean
 }
 
 // ==================== Orders ====================
@@ -214,18 +223,39 @@ export interface CreateOrderResult {
   out_trade_no?: string
   payment_mode?: string
   resume_token?: string
+  alipay_mobile_precreate_deep_link?: boolean
   oauth?: WechatOAuthInfo
   jsapi?: WechatJSAPIPayload
   jsapi_payload?: WechatJSAPIPayload
 }
 
+export type CurrencyAmounts = Record<string, number>
+
+export interface DailyPaymentStats {
+  date: string
+  amount: CurrencyAmounts
+  count: number
+}
+
+export interface PaymentMethodStats {
+  type: string
+  amount: CurrencyAmounts
+  count: number
+}
+
+export interface TopUserPaymentStats {
+  user_id: number
+  email: string
+  amount: number
+}
+
 export interface DashboardStats {
-  today_amount: number
-  total_amount: number
+  today_amount: CurrencyAmounts
+  total_amount: CurrencyAmounts
   today_count: number
   total_count: number
-  avg_amount: number
-  daily_series: { date: string; amount: number; count: number }[]
-  payment_methods: { type: string; amount: number; count: number }[]
-  top_users: { user_id: number; email: string; amount: number }[]
+  avg_amount: CurrencyAmounts
+  daily_series: DailyPaymentStats[]
+  payment_methods: PaymentMethodStats[]
+  top_users: Record<string, TopUserPaymentStats[]>
 }

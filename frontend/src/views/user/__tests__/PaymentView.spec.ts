@@ -103,12 +103,19 @@ function checkoutInfoFixture(overrides: Partial<CheckoutInfoResponse> = {}) {
     global_min: 0,
     global_max: 0,
     plans: [],
+    recharge_packages: [
+      { amount: 50, bonus: 0 },
+      { amount: 100, bonus: 20 },
+      { amount: 500, bonus: 150 },
+      { amount: 1000, bonus: 400 },
+    ],
     balance_disabled: false,
     balance_recharge_multiplier: 1,
     subscription_usd_to_cny_rate: 0,
     recharge_fee_rate: 0,
     help_text: '',
     help_image_url: '',
+    enterprise_qr_code_url: '',
     stripe_publishable_key: '',
   }
 

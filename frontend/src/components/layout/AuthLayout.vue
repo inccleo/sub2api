@@ -31,11 +31,21 @@
         <!-- Custom Logo or Default Logo -->
         <template v-if="settingsLoaded">
           <div
-            class="mb-4 inline-flex h-16 w-44 items-center justify-center overflow-hidden rounded-xl"
+            class="mb-4 inline-flex h-16 items-center justify-center overflow-hidden rounded-xl"
+            :class="wideLogo ? 'w-64' : 'w-44'"
           >
-            <img :src="siteLogo || '/logo.svg'" alt="Logo" class="max-h-full max-w-full object-contain" />
+            <img
+              data-testid="auth-brand-logo"
+              :src="resolvedLogo || '/logo.svg'"
+              alt="Logo"
+              class="max-h-full max-w-full object-contain"
+            />
           </div>
-          <h1 class="text-gradient mb-2 text-3xl font-bold">
+          <h1
+            v-if="showBrandTitle"
+            data-testid="auth-brand-title"
+            class="text-gradient mb-2 text-3xl font-bold"
+          >
             {{ siteName }}
           </h1>
           <p class="text-sm text-gray-500 dark:text-dark-400">
@@ -67,10 +77,23 @@ import { computed, onMounted } from 'vue'
 import { useAppStore } from '@/stores'
 import { sanitizeUrl } from '@/utils/url'
 
+const props = withDefaults(defineProps<{
+  logoSrc?: string
+  showBrandTitle?: boolean
+  wideLogo?: boolean
+}>(), {
+  logoSrc: '',
+  showBrandTitle: true,
+  wideLogo: false
+})
+
 const appStore = useAppStore()
 
 const siteName = computed(() => appStore.siteName || 'Sub2API')
-const siteLogo = computed(() => sanitizeUrl(appStore.siteLogo || '', { allowRelative: true, allowDataUrl: true }))
+const resolvedLogo = computed(() => sanitizeUrl(props.logoSrc || appStore.siteLogo || '', {
+  allowRelative: true,
+  allowDataUrl: true
+}))
 const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle || 'Subscription to API Conversion Platform')
 const settingsLoaded = computed(() => appStore.publicSettingsLoaded)
 

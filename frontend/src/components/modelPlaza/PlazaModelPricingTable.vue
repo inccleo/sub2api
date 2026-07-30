@@ -23,8 +23,13 @@
           </th>
           <th colspan="3" class="pz-bg pt-2 text-center">
             <div class="pz-title border-b pb-2 font-semibold">
-              {{ t('modelPlaza.table.paidPrice') }}
-              <span class="pz-unit ml-1 normal-case font-normal">{{ t('modelPlaza.table.unitPerMillion') }}</span>
+              <div>
+                {{ t('modelPlaza.table.paidPrice') }}
+                <span class="pz-unit ml-1 normal-case font-normal">{{ t('modelPlaza.table.unitPerMillion') }}</span>
+              </div>
+              <div class="pz-unit mt-0.5 text-[10px] font-normal normal-case">
+                {{ t('modelPlaza.table.exchangeNote', { rate: DISPLAY_USD_TO_CNY_RATE }) }}
+              </div>
             </div>
           </th>
           <th
@@ -183,10 +188,10 @@
             class="border-l border-gray-100 py-2.5 pl-3 pr-1 text-right align-middle font-mono text-xs dark:border-dark-700/60"
           >
             <template v-if="hasCustomRate">
-              <span class="mr-1 text-gray-400 line-through dark:text-dark-500">{{ rateMultiplier }}x</span>
-              <span class="font-bold text-primary-600 dark:text-primary-400">{{ effectiveRate }}x</span>
+              <span class="mr-1 text-gray-400 line-through dark:text-dark-500">{{ displayRate(rateMultiplier) }}x</span>
+              <span class="font-bold text-primary-600 dark:text-primary-400">{{ displayRate(effectiveRate) }}x</span>
             </template>
-            <span v-else class="font-bold text-gray-700 dark:text-gray-300">{{ effectiveRate }}x</span>
+            <span v-else class="font-bold text-gray-700 dark:text-gray-300">{{ displayRate(effectiveRate) }}x</span>
           </td>
         </tr>
       </tbody>
@@ -223,6 +228,8 @@ const { t } = useI18n()
 const accentStyle = computed(() => ({ '--plaza-accent': platformAccentColor(props.platform ?? '') }))
 
 const PER_MILLION = 1_000_000
+/** 模型广场展示口径：人民币 1:1 充值，按 1 USD = 7 CNY 折算成可比美元成本。 */
+const DISPLAY_USD_TO_CNY_RATE = 7
 
 /** 展示顺序:官方输出价从高到低;无官方价的排最后;同价按名称升序。 */
 const sortedModels = computed(() => {
@@ -254,16 +261,37 @@ function billingModeLabel(m: PlazaModel): string {
 /** 价格统一保底 2 位小数,更长的有效小数原样保留。 */
 const MIN_DECIMALS = 2
 
-/** 实付价 = 渠道单价 × 生效倍率,按 $/1M token 展示。 */
+/**
+ * 展示价 = 渠道单价 × 生效倍率 ÷ 7。
+ *
+ * 这里只折算模型广场的现金成本展示，不改变渠道定价、余额扣费或充值入账。
+ */
 function paidPerMillion(value: number | null | undefined): string {
   if (value == null) return '-'
-  return formatScaled(value * effectiveRate.value, PER_MILLION, MIN_DECIMALS)
+  return formatConvertedPrice(value, PER_MILLION)
 }
 
-/** 按次 / 按图片单价(乘生效倍率,不换算 1M)。 */
+/** 按次 / 按图片同样折算为美元现金成本，不换算 1M。 */
 function paidRequestPrice(value: number | null | undefined): string {
   if (value == null) return '-'
-  return formatScaled(value * effectiveRate.value, 1, MIN_DECIMALS)
+  return formatConvertedPrice(value, 1)
+}
+
+function formatConvertedPrice(value: number, scale: number): string {
+  const converted = (value * effectiveRate.value * scale) / DISPLAY_USD_TO_CNY_RATE
+  return formatScaled(roundDisplayAmount(converted), 1, MIN_DECIMALS)
+}
+
+/** 常规模型价最多 4 位小数；极小的按次/按图价格保留 6 位，避免显示成 0。 */
+function roundDisplayAmount(value: number): number {
+  const decimals = value !== 0 && Math.abs(value) < 0.01 ? 6 : 4
+  const factor = 10 ** decimals
+  return Math.round((value + Number.EPSILON) * factor) / factor
+}
+
+/** 综合折扣 = 生效计费倍率 ÷ 展示汇率。 */
+function displayRate(rate: number): string {
+  return String(Math.round(((rate / DISPLAY_USD_TO_CNY_RATE) + Number.EPSILON) * 10000) / 10000)
 }
 
 /** 官方参考价不乘倍率。 */

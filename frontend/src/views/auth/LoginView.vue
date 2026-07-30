@@ -1,5 +1,9 @@
 <template>
-  <AuthLayout>
+  <AuthLayout
+    logo-src="/uploads/topopenai-logo-wide.png"
+    :show-brand-title="false"
+    wide-logo
+  >
     <div class="space-y-6">
       <!-- Title -->
       <div class="text-center">

@@ -279,6 +279,33 @@ function buildGrokAPIKeyAccount() {
   } as any
 }
 
+function buildKimiOAuthAccount() {
+  return {
+    id: 6,
+    name: 'Kimi OAuth',
+    notes: '',
+    platform: 'kimi',
+    type: 'oauth',
+    credentials: {
+      refresh_token: 'kimi-rt',
+      base_url: 'https://api.kimi.com/coding/v1',
+      device_id: 'abc123',
+      model_mapping: {
+        'kimi-latest': 'kimi-for-coding'
+      }
+    },
+    extra: {},
+    proxy_id: null,
+    concurrency: 1,
+    priority: 1,
+    rate_multiplier: 1,
+    status: 'active',
+    group_ids: [],
+    expires_at: null,
+    auto_pause_on_expired: false
+  } as any
+}
+
 function buildOpenAISetupTokenAccount() {
   return {
     ...buildAccount(),
@@ -539,6 +566,59 @@ describe('EditAccountModal', () => {
 
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.base_url).toBe('https://api.x.ai/v1')
+  })
+
+  it('loads and submits Kimi OAuth model mapping edits', async () => {
+    const account = buildKimiOAuthAccount()
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    expect(wrapper.text()).toContain('K2 Thinking')
+
+    const inputWithValue = (value: string) => {
+      const input = wrapper
+        .findAll('input')
+        .find((input) => (input.element as HTMLInputElement).value === value)
+      expect(input).toBeTruthy()
+      return input!
+    }
+
+    await inputWithValue('kimi-latest').setValue(' kimi ')
+    await inputWithValue('kimi-for-coding').setValue(' k3 ')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.model_mapping).toEqual({
+      kimi: 'k3'
+    })
+  })
+
+  it('loads and submits the display-only Kimi membership expiration time', async () => {
+    const account = buildKimiOAuthAccount()
+    account.extra = {
+      kimi_membership_level: 'LEVEL_INTERMEDIATE',
+      kimi_subscription_expires_at: '2027-02-03T04:05:00.000Z'
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    const input = wrapper.get<HTMLInputElement>('[data-testid="kimi-subscription-expires-at-input"]')
+    expect(input.element.value).not.toBe('')
+
+    await input.setValue('2030-08-09T10:11')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toMatchObject({
+      kimi_membership_level: 'LEVEL_INTERMEDIATE',
+      kimi_subscription_expires_at: new Date('2030-08-09T10:11').toISOString()
+    })
   })
 
   it('only submits model mapping credentials when saving an OpenAI spark shadow account', async () => {

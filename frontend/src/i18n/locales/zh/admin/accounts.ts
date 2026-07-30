@@ -303,6 +303,7 @@ export default {
         gemini: 'Gemini',
         antigravity: 'Antigravity',
         grok: 'Grok',
+        kimi: 'Kimi',
       },
       types: {
         oauth: 'OAuth',
@@ -312,6 +313,7 @@ export default {
         codeAssist: 'Code Assist',
         antigravityOauth: 'Antigravity OAuth',
         grokOauth: 'Grok OAuth',
+        kimiOauth: 'Kimi OAuth',
         antigravityApikey: '通过 Base URL + API Key 连接',
         upstream: '对接上游',
         upstreamDesc: '通过 Base URL + API Key 连接上游'
@@ -645,6 +647,10 @@ export default {
         baseUrlHint: 'Grok OAuth 账号会转发到官方 xAI API Base URL。',
         apiKeyHint: 'Grok 订阅支持使用 OAuth refresh token；API Key 账号不在本次范围内。'
       },
+      kimi: {
+        baseUrlHint: 'Kimi OAuth 账号会转发到官方 Kimi Coding API Base URL。',
+        apiKeyHint: 'Kimi 订阅支持使用 OAuth 设备码登录；API Key 账号不在本次范围内。'
+      },
       anthropic: {
         apiKeyPassthrough: '自动透传（仅替换认证）',
         apiKeyPassthroughDesc:
@@ -854,6 +860,9 @@ export default {
       billingRateMultiplierHint: '0 表示不计费，仅影响账号计费',
       expiresAt: '过期时间',
       expiresAtHint: '留空表示不过期',
+      kimiSubscriptionExpiresAt: 'Kimi 会员到期时间',
+      kimiSubscriptionExpiresAtHint: 'Kimi Code OAuth 当前不返回会员到期时间，请按 Kimi 控制台信息填写；此字段仅用于展示。',
+      kimiSubscriptionExpiresAtInvalid: '请输入有效的 Kimi 会员到期时间',
       higherPriorityFirst: '数值越小优先级越高',
       mixedScheduling: '在 /v1/messages 中使用',
       mixedSchedulingHint: '启用后可参与 Anthropic/Gemini 分组的调度',
@@ -1070,6 +1079,27 @@ export default {
               '找不到所选代理。请选择可用代理后重试。'
           },
           oauthOnlyHint: '首版 Grok 支持仅包含 OAuth 订阅的 Responses API 文本/推理转发。'
+        },
+        kimi: {
+          title: 'Kimi 账号授权',
+          followSteps: '通过设备登录授权您的 Kimi 订阅账号：',
+          step1Start: '发起设备授权以获取用户码',
+          startAuth: '开始设备授权',
+          starting: '正在获取设备码...',
+          restart: '重新发起授权',
+          userCode: '用户码',
+          copyCode: '复制用户码',
+          codeCopied: '用户码已复制',
+          step2Open: '打开验证页面并确认',
+          openUrlDesc: '在浏览器中打开验证页面，登录 Kimi 并确认用户码。',
+          openVerificationPage: '打开验证页面',
+          waiting: '等待您在浏览器中确认...',
+          authorized: '授权成功，正在创建账号...',
+          expired: '设备码已过期，请重新发起授权。',
+          denied: '授权已被拒绝，请重新发起后重试。',
+          failedToStart: '发起 Kimi 设备授权失败',
+          pollFailed: '轮询 Kimi 设备授权状态失败',
+          oauthOnlyHint: 'Kimi 订阅账号仅支持 OAuth 设备码登录（OpenAI 兼容转发）。'
         },
         // Gemini specific
         gemini: {
@@ -1297,6 +1327,7 @@ export default {
       geminiAccount: 'Gemini 账号',
       antigravityAccount: 'Antigravity 账号',
       grokAccount: 'Grok 账号',
+      kimiAccount: 'Kimi 账号',
       inputMethod: '输入方式',
       reAuthorizedSuccess: '账号重新授权成功',
       // Test Modal

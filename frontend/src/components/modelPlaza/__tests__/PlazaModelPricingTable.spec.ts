@@ -46,41 +46,36 @@ function mountTable(models: PlazaModel[], rateMultiplier: number, userRateMultip
 }
 
 describe('PlazaModelPricingTable', () => {
-  it('倍率为 1 时展示渠道单价原值($/1M),价格保底 2 位小数', () => {
+  it('倍率为 1 时按固定汇率 7 折算美元展示价', () => {
     const wrapper = mountTable([tokenModel()], 1)
-    const text = wrapper.text()
-    expect(text).toContain('$3.00')
-    expect(text).toContain('$15.00')
-    // 缓存写 / 读(超过 2 位小数原样保留)
-    expect(text).toContain('$3.75')
-    expect(text).toContain('$0.30')
-    // 倍率列
-    expect(text).toContain('1x')
+    const cells = wrapper.findAll('tbody td')
+    expect(cells[1].text()).toBe('$0.4286')
+    expect(cells[2].text()).toBe('$2.1429')
+    expect(cells[3].text()).toContain('$0.5357')
+    expect(cells[3].text()).toContain('$0.0429')
+    expect(cells[7].text()).toBe('0.1429x')
+    expect(wrapper.text()).toContain('modelPlaza.table.exchangeNote')
   })
 
-  it('倍率 ≠ 1 时价格列为折后实付价,官方价列保持原价', () => {
+  it('倍率 ≠ 1 时折合价格同时应用倍率和汇率,官方价保持原价', () => {
     const wrapper = mountTable([tokenModel()], 0.5)
-    const text = wrapper.text()
-    // 实付 = 3 × 0.5 / 15 × 0.5
-    expect(text).toContain('$1.50')
-    expect(text).toContain('$7.50')
-    // 官方价原值仍在(官方列不乘倍率)
-    expect(text).toContain('$3.00')
-    expect(text).toContain('$15.00')
-    expect(text).toContain('0.5x')
+    const cells = wrapper.findAll('tbody td')
+    expect(cells[1].text()).toBe('$0.2143')
+    expect(cells[2].text()).toBe('$1.0714')
+    expect(cells[4].text()).toBe('$3.00')
+    expect(cells[5].text()).toBe('$15.00')
+    expect(cells[7].text()).toBe('0.0714x')
   })
 
   it('用户专属倍率覆盖分组倍率,并划线展示原倍率', () => {
     const wrapper = mountTable([tokenModel()], 1, 0.8)
     const text = wrapper.text()
-    // 实付按 0.8:3 × 0.8 = 2.4
-    expect(text).toContain('$2.40')
-    expect(text).toContain('$12.00')
-    // 倍率列:原倍率划线 + 专属倍率
+    expect(text).toContain('$0.3429')
+    expect(text).toContain('$1.7143')
     const struck = wrapper.find('td .line-through')
     expect(struck.exists()).toBe(true)
-    expect(struck.text()).toBe('1x')
-    expect(text).toContain('0.8x')
+    expect(struck.text()).toBe('0.1429x')
+    expect(text).toContain('0.1143x')
   })
 
   it('模型按官方输出价从高到低排序,无官方价的排最后', () => {
@@ -151,8 +146,7 @@ describe('PlazaModelPricingTable', () => {
     })
     const wrapper = mountTable([model], 0.5)
     const text = wrapper.text()
-    // 0.04 × 0.5 = 0.02,scale=1
-    expect(text).toContain('$0.02')
+    expect(text).toContain('$0.002857')
     expect(text).toContain('modelPlaza.table.perRequest')
     // 单位后缀跟在价格后(按次 → / 次)
     expect(text).toContain('modelPlaza.table.perUnitRequest')
@@ -198,10 +192,10 @@ describe('PlazaModelPricingTable', () => {
     // 区间标签按 token 数生成
     expect(text).toContain('≤200K')
     expect(text).toContain('>200K')
-    // 折后:输入 1.5 / 3,输出 7.5 / 15
-    expect(text).toContain('$1.50')
-    expect(text).toContain('$7.50')
-    expect(text).toContain('$15.00')
+    expect(text).toContain('$0.2143')
+    expect(text).toContain('$0.4286')
+    expect(text).toContain('$1.0714')
+    expect(text).toContain('$2.1429')
   })
 
   it('按图模型主行展示阶梯芯片,不把 image_output_price(每 token)当按次价', () => {
@@ -245,11 +239,11 @@ describe('PlazaModelPricingTable', () => {
     const wrapper = mountTable([model], 0.1)
     const text = wrapper.text()
     expect(text).toContain('modelPlaza.table.perImage')
-    // 芯片:1K $0.001 / 2K $0.002,单位后缀内嵌(按图 → / 张)
+    // 芯片按倍率和汇率折算，单位后缀内嵌(按图 → / 张)
     expect(text).toContain('1K')
-    expect(text).toContain('$0.001')
+    expect(text).toContain('$0.000143')
     expect(text).toContain('2K')
-    expect(text).toContain('$0.002')
+    expect(text).toContain('$0.000286')
     expect(text).toContain('modelPlaza.table.perUnitImage')
     // 旧 bug:image_output_price × 0.1 = 0.000003 被当按次价
     expect(text).not.toContain('$0.000003')

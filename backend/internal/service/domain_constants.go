@@ -282,10 +282,13 @@ const (
 	SettingKeyCustomEndpoints             = "custom_endpoints"              // 自定义端点列表（JSON 数组）
 
 	// 默认配置
-	SettingKeyDefaultConcurrency   = "default_concurrency"    // 新用户默认并发量
-	SettingKeyDefaultBalance       = "default_balance"        // 新用户默认余额
-	SettingKeyDefaultSubscriptions = "default_subscriptions"  // 新用户默认订阅列表（JSON）
-	SettingKeyDefaultUserRPMLimit  = "default_user_rpm_limit" // 新用户默认 RPM 限制（0 = 不限制）
+	SettingKeyDefaultConcurrency      = "default_concurrency"        // 新用户默认并发量
+	SettingKeyDefaultBalance          = "default_balance"            // 新用户默认余额
+	SettingKeyDefaultSubscriptions    = "default_subscriptions"      // 新用户默认订阅列表（JSON）
+	SettingKeyDefaultUserRPMLimit     = "default_user_rpm_limit"     // 新用户默认 RPM 限制（0 = 不限制）
+	SettingKeyDailyCheckinEnabled     = "daily_checkin_enabled"      // 是否启用每日签到
+	SettingKeyDailyCheckinReward      = "daily_checkin_reward"       // 每日签到基础余额奖励
+	SettingKeyDailyCheckinWeeklyBonus = "daily_checkin_weekly_bonus" // 每连续签到 7 天的额外余额奖励
 
 	// 第三方认证来源默认授予配置
 	SettingKeyAuthSourceDefaultEmailBalance             = "auth_source_default_email_balance"

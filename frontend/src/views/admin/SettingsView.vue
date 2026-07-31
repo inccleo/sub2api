@@ -3708,6 +3708,76 @@
             </div>
           </div>
 
+          <!-- Daily Check-in Settings -->
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.dailyCheckin.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.dailyCheckin.description") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <div class="flex items-center justify-between gap-6">
+                <div>
+                  <label class="font-medium text-gray-900 dark:text-white">
+                    {{ t("admin.settings.dailyCheckin.enabled") }}
+                  </label>
+                  <p class="text-sm text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.dailyCheckin.enabledHint") }}
+                  </p>
+                </div>
+                <Toggle v-model="form.daily_checkin_enabled" />
+              </div>
+
+              <div
+                class="grid grid-cols-1 gap-6 border-t border-gray-100 pt-5 dark:border-dark-700 md:grid-cols-2"
+              >
+                <div>
+                  <label
+                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.dailyCheckin.dailyReward") }}
+                  </label>
+                  <input
+                    v-model.number="form.daily_checkin_reward"
+                    type="number"
+                    min="0"
+                    max="10000"
+                    step="0.01"
+                    class="input"
+                    placeholder="0.01"
+                  />
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.dailyCheckin.dailyRewardHint") }}
+                  </p>
+                </div>
+                <div>
+                  <label
+                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.dailyCheckin.weeklyBonus") }}
+                  </label>
+                  <input
+                    v-model.number="form.daily_checkin_weekly_bonus"
+                    type="number"
+                    min="0"
+                    max="10000"
+                    step="0.01"
+                    class="input"
+                    placeholder="0.05"
+                  />
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.dailyCheckin.weeklyBonusHint") }}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="card">
             <div
               class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
@@ -8834,6 +8904,9 @@ const form = reactive<SettingsForm>({
   login_agreement_updated_at: "2026-03-31",
   login_agreement_documents: defaultLoginAgreementDocuments(),
   default_balance: 0,
+  daily_checkin_enabled: false,
+  daily_checkin_reward: 0.01,
+  daily_checkin_weekly_bonus: 0.05,
   default_platform_quotas: normalizePlatformQuotasMap() as DefaultPlatformQuotasMap,
   affiliate_rebate_rate: 20,
   affiliate_rebate_freeze_hours: 0,
@@ -10357,6 +10430,12 @@ async function saveSettings() {
       login_agreement_updated_at: form.login_agreement_updated_at,
       login_agreement_documents: form.login_agreement_documents,
       default_balance: form.default_balance,
+      daily_checkin_enabled: form.daily_checkin_enabled,
+      daily_checkin_reward: Math.max(0, Number(form.daily_checkin_reward) || 0),
+      daily_checkin_weekly_bonus: Math.max(
+        0,
+        Number(form.daily_checkin_weekly_bonus) || 0,
+      ),
       affiliate_rebate_rate: Math.min(
         100,
         Math.max(0, Number(form.affiliate_rebate_rate) || 0),

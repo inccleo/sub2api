@@ -85,12 +85,18 @@ async function performCheckin() {
   submitting.value = true
   try {
     const result = await dailyCheckinAPI.checkin()
+    status.value = {
+      ...status.value,
+      checked_in_today: true,
+      current_streak: result.current_streak,
+      today_reward: result.reward_amount,
+    }
     appStore.showSuccess(
       t('profile.dailyCheckin.success', {
         amount: formatAmount(result.reward_amount),
       }),
     )
-    await Promise.all([loadStatus(), authStore.refreshUser()])
+    await Promise.allSettled([loadStatus(), authStore.refreshUser()])
   } catch (error: unknown) {
     appStore.showError(
       extractApiErrorMessage(error, t('profile.dailyCheckin.failed')),

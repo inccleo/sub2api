@@ -1,3 +1,4 @@
+-- Daily check-in reward ledger.
 CREATE TABLE IF NOT EXISTS daily_checkins (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

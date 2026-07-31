@@ -14,7 +14,7 @@ import (
 func TestDailyCheckinServiceSeventhDayBonus(t *testing.T) {
 	repo := newDailyCheckinTestRepo()
 	settings := newDailyCheckinTestSettings(true, 0.10, 0.50)
-	svc := NewDailyCheckinService(repo, settings, nil, nil)
+	svc := NewDailyCheckinService(repo, settings, nil, nil, nil)
 
 	now := time.Date(2026, 7, 1, 8, 0, 0, 0, timezone.Location())
 	svc.now = func() time.Time { return now }
@@ -37,7 +37,7 @@ func TestDailyCheckinServiceSeventhDayBonus(t *testing.T) {
 
 func TestDailyCheckinServiceRejectsDuplicate(t *testing.T) {
 	repo := newDailyCheckinTestRepo()
-	svc := NewDailyCheckinService(repo, newDailyCheckinTestSettings(true, 0.25, 1), nil, nil)
+	svc := NewDailyCheckinService(repo, newDailyCheckinTestSettings(true, 0.25, 1), nil, nil, nil)
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, timezone.Location())
 	svc.now = func() time.Time { return now }
 
@@ -50,7 +50,7 @@ func TestDailyCheckinServiceRejectsDuplicate(t *testing.T) {
 
 func TestDailyCheckinServiceResetsBrokenStreak(t *testing.T) {
 	repo := newDailyCheckinTestRepo()
-	svc := NewDailyCheckinService(repo, newDailyCheckinTestSettings(true, 0.10, 0.50), nil, nil)
+	svc := NewDailyCheckinService(repo, newDailyCheckinTestSettings(true, 0.10, 0.50), nil, nil, nil)
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, timezone.Location())
 	svc.now = func() time.Time { return now }
 
@@ -65,16 +65,138 @@ func TestDailyCheckinServiceResetsBrokenStreak(t *testing.T) {
 
 func TestDailyCheckinServiceDisabled(t *testing.T) {
 	repo := newDailyCheckinTestRepo()
-	svc := NewDailyCheckinService(repo, newDailyCheckinTestSettings(false, 0.10, 0.50), nil, nil)
+	svc := NewDailyCheckinService(repo, newDailyCheckinTestSettings(false, 0.10, 0.50), nil, nil, nil)
 
 	_, err := svc.Checkin(context.Background(), 1)
 	require.ErrorIs(t, err, ErrDailyCheckinDisabled)
 	require.Empty(t, repo.records)
 }
 
+func TestDailyCheckinServiceRejectsNonUserRole(t *testing.T) {
+	repo := newDailyCheckinTestRepo()
+	repo.role = RoleAdmin
+	svc := NewDailyCheckinService(
+		repo,
+		newDailyCheckinTestSettings(true, 0.10, 0.50),
+		nil,
+		nil,
+		nil,
+	)
+
+	_, err := svc.Checkin(context.Background(), 1)
+	require.ErrorIs(t, err, ErrDailyCheckinRole)
+	require.Empty(t, repo.records)
+}
+
+func TestDailyCheckinServiceStatusBeforeAndAfterCheckin(t *testing.T) {
+	repo := newDailyCheckinTestRepo()
+	svc := NewDailyCheckinService(
+		repo,
+		newDailyCheckinTestSettings(true, 0.10, 0.50),
+		nil,
+		nil,
+		nil,
+	)
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, timezone.Location())
+	svc.now = func() time.Time { return now }
+
+	before, err := svc.GetStatus(context.Background(), 1)
+	require.NoError(t, err)
+	require.True(t, before.Enabled)
+	require.False(t, before.CheckedInToday)
+	require.Zero(t, before.CurrentStreak)
+	require.Equal(t, 7, before.DaysUntilBonus)
+	require.Nil(t, before.TodayReward)
+
+	_, err = svc.Checkin(context.Background(), 1)
+	require.NoError(t, err)
+	after, err := svc.GetStatus(context.Background(), 1)
+	require.NoError(t, err)
+	require.True(t, after.CheckedInToday)
+	require.Equal(t, 1, after.CurrentStreak)
+	require.Equal(t, 6, after.DaysUntilBonus)
+	require.NotNil(t, after.TodayReward)
+	require.InDelta(t, 0.10, *after.TodayReward, 1e-9)
+}
+
+func TestDailyCheckinServiceStatusShowsProgressFromYesterday(t *testing.T) {
+	repo := newDailyCheckinTestRepo()
+	svc := NewDailyCheckinService(
+		repo,
+		newDailyCheckinTestSettings(true, 0.10, 0.50),
+		nil,
+		nil,
+		nil,
+	)
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, timezone.Location())
+	svc.now = func() time.Time { return now }
+	yesterday := timezone.StartOfDay(now).AddDate(0, 0, -1)
+	repo.records[dailyCheckinTestKey(1, yesterday)] = &DailyCheckinRecord{
+		UserID:      1,
+		CheckinDate: yesterday,
+		StreakCount: 6,
+	}
+
+	got, err := svc.GetStatus(context.Background(), 1)
+	require.NoError(t, err)
+	require.False(t, got.CheckedInToday)
+	require.Equal(t, 6, got.CurrentStreak)
+	require.Equal(t, 1, got.DaysUntilBonus)
+}
+
+func TestDailyCheckinServiceInvalidatesAPIKeyAuthCache(t *testing.T) {
+	repo := newDailyCheckinTestRepo()
+	authCache := &dailyCheckinAuthCacheStub{}
+	svc := NewDailyCheckinService(
+		repo,
+		newDailyCheckinTestSettings(true, 0.10, 0.50),
+		authCache,
+		nil,
+		nil,
+	)
+
+	_, err := svc.Checkin(context.Background(), 42)
+	require.NoError(t, err)
+	require.Equal(t, []int64{42}, authCache.userIDs)
+}
+
+func TestDailyCheckinServiceInvalidatesCacheAfterRequestCancellation(t *testing.T) {
+	repo := newDailyCheckinTestRepo()
+	authCache := &dailyCheckinAuthCacheStub{}
+	svc := NewDailyCheckinService(
+		repo,
+		newDailyCheckinTestSettings(true, 0.10, 0.50),
+		authCache,
+		nil,
+		nil,
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := svc.Checkin(ctx, 42)
+	require.NoError(t, err)
+	require.Equal(t, []int64{42}, authCache.userIDs)
+	require.NoError(t, authCache.contextErr)
+}
+
+type dailyCheckinAuthCacheStub struct {
+	userIDs    []int64
+	contextErr error
+}
+
+func (*dailyCheckinAuthCacheStub) InvalidateAuthCacheByKey(context.Context, string) {}
+
+func (s *dailyCheckinAuthCacheStub) InvalidateAuthCacheByUserID(ctx context.Context, userID int64) {
+	s.userIDs = append(s.userIDs, userID)
+	s.contextErr = ctx.Err()
+}
+
+func (*dailyCheckinAuthCacheStub) InvalidateAuthCacheByGroupID(context.Context, int64) {}
+
 type dailyCheckinTestRepo struct {
 	records map[string]*DailyCheckinRecord
 	balance float64
+	role    string
 }
 
 func newDailyCheckinTestRepo() *dailyCheckinTestRepo {
@@ -82,7 +204,10 @@ func newDailyCheckinTestRepo() *dailyCheckinTestRepo {
 }
 
 func (r *dailyCheckinTestRepo) GetUserRole(context.Context, int64) (string, error) {
-	return RoleUser, nil
+	if r.role == "" {
+		return RoleUser, nil
+	}
+	return r.role, nil
 }
 
 func (r *dailyCheckinTestRepo) GetByDate(_ context.Context, userID int64, date time.Time) (*DailyCheckinRecord, error) {
@@ -92,6 +217,10 @@ func (r *dailyCheckinTestRepo) GetByDate(_ context.Context, userID int64, date t
 	}
 	copyRecord := *record
 	return &copyRecord, nil
+}
+
+func (*dailyCheckinTestRepo) LockUserForCheckin(context.Context, int64) error {
+	return nil
 }
 
 func (r *dailyCheckinTestRepo) Create(_ context.Context, record *DailyCheckinRecord) error {

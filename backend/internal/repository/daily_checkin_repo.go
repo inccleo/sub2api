@@ -74,6 +74,33 @@ func (r *dailyCheckinRepository) GetByDate(ctx context.Context, userID int64, da
 	return record, nil
 }
 
+func (r *dailyCheckinRepository) LockUserForCheckin(ctx context.Context, userID int64) (err error) {
+	queryer, err := r.queryer(ctx)
+	if err != nil {
+		return err
+	}
+	rows, err := queryer.QueryContext(
+		ctx,
+		`SELECT pg_advisory_xact_lock(hashtextextended('daily_checkin:' || $1::text, 0))`,
+		userID,
+	)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+	}()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		return sql.ErrNoRows
+	}
+	return rows.Err()
+}
+
 func (r *dailyCheckinRepository) Create(ctx context.Context, record *service.DailyCheckinRecord) error {
 	const query = `
 		INSERT INTO daily_checkins (

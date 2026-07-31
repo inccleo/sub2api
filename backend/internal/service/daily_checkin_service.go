@@ -17,6 +17,7 @@ const (
 	DailyCheckinWeeklyBonusDefault = 0.05
 	DailyCheckinRewardLimit        = 10000.0
 	dailyCheckinBonusInterval      = 7
+	dailyCheckinCacheTimeout       = 5 * time.Second
 )
 
 var (
@@ -40,6 +41,7 @@ type DailyCheckinRecord struct {
 type DailyCheckinRepository interface {
 	GetUserRole(ctx context.Context, userID int64) (string, error)
 	GetByDate(ctx context.Context, userID int64, date time.Time) (*DailyCheckinRecord, error)
+	LockUserForCheckin(ctx context.Context, userID int64) error
 	Create(ctx context.Context, record *DailyCheckinRecord) error
 	AddUserBalance(ctx context.Context, userID int64, amount float64) (float64, error)
 }
@@ -65,25 +67,28 @@ type DailyCheckinResult struct {
 }
 
 type DailyCheckinService struct {
-	repo                DailyCheckinRepository
-	settingService      *SettingService
-	billingCacheService *BillingCacheService
-	entClient           *dbent.Client
-	now                 func() time.Time
+	repo                 DailyCheckinRepository
+	settingService       *SettingService
+	authCacheInvalidator APIKeyAuthCacheInvalidator
+	billingCacheService  *BillingCacheService
+	entClient            *dbent.Client
+	now                  func() time.Time
 }
 
 func NewDailyCheckinService(
 	repo DailyCheckinRepository,
 	settingService *SettingService,
+	authCacheInvalidator APIKeyAuthCacheInvalidator,
 	billingCacheService *BillingCacheService,
 	entClient *dbent.Client,
 ) *DailyCheckinService {
 	return &DailyCheckinService{
-		repo:                repo,
-		settingService:      settingService,
-		billingCacheService: billingCacheService,
-		entClient:           entClient,
-		now:                 timezone.Now,
+		repo:                 repo,
+		settingService:       settingService,
+		authCacheInvalidator: authCacheInvalidator,
+		billingCacheService:  billingCacheService,
+		entClient:            entClient,
+		now:                  timezone.Now,
 	}
 }
 
@@ -155,57 +160,71 @@ func (s *DailyCheckinService) Checkin(ctx context.Context, userID int64) (*Daily
 
 	now := s.now()
 	today := timezone.StartOfDay(now)
-	yesterday, err := s.repo.GetByDate(ctx, userID, today.AddDate(0, 0, -1))
-	if err != nil && !errors.Is(err, ErrDailyCheckinNotFound) {
-		return nil, fmt.Errorf("get previous daily check-in: %w", err)
-	}
-
-	streak := 1
-	if yesterday != nil {
-		streak = yesterday.StreakCount + 1
-	}
-	bonusReward := 0.0
-	if streak%dailyCheckinBonusInterval == 0 {
-		bonusReward = weeklyBonus
-	}
-	totalReward := roundDailyCheckinAmount(dailyReward + bonusReward)
-	record := &DailyCheckinRecord{
-		UserID:      userID,
-		CheckinDate: today,
-		BaseReward:  dailyReward,
-		BonusReward: bonusReward,
-		TotalReward: totalReward,
-		StreakCount: streak,
-	}
-
-	newBalance, err := s.apply(ctx, record)
+	record, newBalance, err := s.apply(ctx, userID, today, dailyReward, weeklyBonus)
 	if err != nil {
 		return nil, err
 	}
+
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dailyCheckinCacheTimeout)
+	defer cancel()
 	if s.billingCacheService != nil {
-		_ = s.billingCacheService.InvalidateUserBalance(ctx, userID)
+		_ = s.billingCacheService.InvalidateUserBalance(cacheCtx, userID)
+	}
+	if s.authCacheInvalidator != nil {
+		s.authCacheInvalidator.InvalidateAuthCacheByUserID(cacheCtx, userID)
 	}
 
 	return &DailyCheckinResult{
-		RewardAmount:  totalReward,
-		BaseReward:    dailyReward,
-		BonusReward:   bonusReward,
+		RewardAmount:  record.TotalReward,
+		BaseReward:    record.BaseReward,
+		BonusReward:   record.BonusReward,
 		NewBalance:    newBalance,
-		CurrentStreak: streak,
+		CurrentStreak: record.StreakCount,
 		CheckedInAt:   now.Format(time.RFC3339),
 	}, nil
 }
 
-func (s *DailyCheckinService) apply(ctx context.Context, record *DailyCheckinRecord) (float64, error) {
-	apply := func(opCtx context.Context) (float64, error) {
+func (s *DailyCheckinService) apply(
+	ctx context.Context,
+	userID int64,
+	today time.Time,
+	dailyReward float64,
+	weeklyBonus float64,
+) (*DailyCheckinRecord, float64, error) {
+	apply := func(opCtx context.Context) (*DailyCheckinRecord, float64, error) {
+		if err := s.repo.LockUserForCheckin(opCtx, userID); err != nil {
+			return nil, 0, fmt.Errorf("lock daily check-in user: %w", err)
+		}
+		yesterday, err := s.repo.GetByDate(opCtx, userID, today.AddDate(0, 0, -1))
+		if err != nil && !errors.Is(err, ErrDailyCheckinNotFound) {
+			return nil, 0, fmt.Errorf("get previous daily check-in: %w", err)
+		}
+
+		streak := 1
+		if yesterday != nil {
+			streak = yesterday.StreakCount + 1
+		}
+		bonusReward := 0.0
+		if streak%dailyCheckinBonusInterval == 0 {
+			bonusReward = weeklyBonus
+		}
+		record := &DailyCheckinRecord{
+			UserID:      userID,
+			CheckinDate: today,
+			BaseReward:  dailyReward,
+			BonusReward: bonusReward,
+			TotalReward: roundDailyCheckinAmount(dailyReward + bonusReward),
+			StreakCount: streak,
+		}
+
 		if err := s.repo.Create(opCtx, record); err != nil {
-			return 0, err
+			return nil, 0, err
 		}
 		balance, err := s.repo.AddUserBalance(opCtx, record.UserID, record.TotalReward)
 		if err != nil {
-			return 0, fmt.Errorf("add daily check-in balance: %w", err)
+			return nil, 0, fmt.Errorf("add daily check-in balance: %w", err)
 		}
-		return balance, nil
+		return record, balance, nil
 	}
 	if s.entClient == nil {
 		return apply(ctx)
@@ -213,18 +232,18 @@ func (s *DailyCheckinService) apply(ctx context.Context, record *DailyCheckinRec
 
 	tx, err := s.entClient.Tx(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("begin daily check-in transaction: %w", err)
+		return nil, 0, fmt.Errorf("begin daily check-in transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	balance, err := apply(dbent.NewTxContext(ctx, tx))
+	record, balance, err := apply(dbent.NewTxContext(ctx, tx))
 	if err != nil {
-		return 0, err
+		return nil, 0, err
 	}
 	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("commit daily check-in transaction: %w", err)
+		return nil, 0, fmt.Errorf("commit daily check-in transaction: %w", err)
 	}
-	return balance, nil
+	return record, balance, nil
 }
 
 func (s *DailyCheckinService) config(ctx context.Context) (bool, float64, float64, error) {

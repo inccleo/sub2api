@@ -123,6 +123,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyOIDCConnectUserInfoUsernamePath:           "",
 		SettingKeyDefaultConcurrency:                        strconv.Itoa(s.cfg.Default.UserConcurrency),
 		SettingKeyDefaultBalance:                            strconv.FormatFloat(s.cfg.Default.UserBalance, 'f', 8, 64),
+		SettingKeyDailyCheckinEnabled:                       "false",
+		SettingKeyDailyCheckinReward:                        strconv.FormatFloat(DailyCheckinRewardDefault, 'f', 8, 64),
+		SettingKeyDailyCheckinWeeklyBonus:                   strconv.FormatFloat(DailyCheckinWeeklyBonusDefault, 'f', 8, 64),
 		SettingKeyAffiliateRebateRate:                       strconv.FormatFloat(AffiliateRebateRateDefault, 'f', 8, 64),
 		SettingKeyAffiliateRebateFreezeHours:                strconv.Itoa(AffiliateRebateFreezeHoursDefault),
 		SettingKeyAffiliateRebateDurationDays:               strconv.Itoa(AffiliateRebateDurationDaysDefault),
@@ -364,6 +367,17 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		result.DefaultBalance = balance
 	} else {
 		result.DefaultBalance = s.cfg.Default.UserBalance
+	}
+	result.DailyCheckinEnabled = settings[SettingKeyDailyCheckinEnabled] == "true"
+	if reward, err := strconv.ParseFloat(settings[SettingKeyDailyCheckinReward], 64); err == nil {
+		result.DailyCheckinReward = normalizeDailyCheckinAmount(reward, DailyCheckinRewardDefault)
+	} else {
+		result.DailyCheckinReward = DailyCheckinRewardDefault
+	}
+	if bonus, err := strconv.ParseFloat(settings[SettingKeyDailyCheckinWeeklyBonus], 64); err == nil {
+		result.DailyCheckinWeeklyBonus = normalizeDailyCheckinAmount(bonus, DailyCheckinWeeklyBonusDefault)
+	} else {
+		result.DailyCheckinWeeklyBonus = DailyCheckinWeeklyBonusDefault
 	}
 	if rebateRate, err := strconv.ParseFloat(settings[SettingKeyAffiliateRebateRate], 64); err == nil {
 		result.AffiliateRebateRate = clampAffiliateRebateRate(rebateRate)

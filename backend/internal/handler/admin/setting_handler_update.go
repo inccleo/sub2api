@@ -153,6 +153,9 @@ type UpdateSettingsRequest struct {
 	// 默认配置
 	DefaultConcurrency                        int                               `json:"default_concurrency"`
 	DefaultBalance                            float64                           `json:"default_balance"`
+	DailyCheckinEnabled                       *bool                             `json:"daily_checkin_enabled"`
+	DailyCheckinReward                        *float64                          `json:"daily_checkin_reward"`
+	DailyCheckinWeeklyBonus                   *float64                          `json:"daily_checkin_weekly_bonus"`
 	AffiliateRebateRate                       *float64                          `json:"affiliate_rebate_rate"`
 	AffiliateRebateFreezeHours                *int                              `json:"affiliate_rebate_freeze_hours"`
 	AffiliateRebateDurationDays               *int                              `json:"affiliate_rebate_duration_days"`
@@ -509,6 +512,26 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	}
 	if req.DefaultBalance < 0 {
 		req.DefaultBalance = 0
+	}
+	dailyCheckinEnabled := previousSettings.DailyCheckinEnabled
+	if req.DailyCheckinEnabled != nil {
+		dailyCheckinEnabled = *req.DailyCheckinEnabled
+	}
+	dailyCheckinReward := previousSettings.DailyCheckinReward
+	if req.DailyCheckinReward != nil {
+		dailyCheckinReward = *req.DailyCheckinReward
+	}
+	dailyCheckinWeeklyBonus := previousSettings.DailyCheckinWeeklyBonus
+	if req.DailyCheckinWeeklyBonus != nil {
+		dailyCheckinWeeklyBonus = *req.DailyCheckinWeeklyBonus
+	}
+	if dailyCheckinReward < 0 || dailyCheckinReward > service.DailyCheckinRewardLimit {
+		response.BadRequest(c, "Daily check-in reward must be between 0 and 10000")
+		return
+	}
+	if dailyCheckinWeeklyBonus < 0 || dailyCheckinWeeklyBonus > service.DailyCheckinRewardLimit {
+		response.BadRequest(c, "Daily check-in weekly bonus must be between 0 and 10000")
+		return
 	}
 	affiliateRebateRate := previousSettings.AffiliateRebateRate
 	if req.AffiliateRebateRate != nil {
@@ -1440,6 +1463,9 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		CustomEndpoints:                        customEndpointsJSON,
 		DefaultConcurrency:                     req.DefaultConcurrency,
 		DefaultBalance:                         req.DefaultBalance,
+		DailyCheckinEnabled:                    dailyCheckinEnabled,
+		DailyCheckinReward:                     dailyCheckinReward,
+		DailyCheckinWeeklyBonus:                dailyCheckinWeeklyBonus,
 		AffiliateRebateRate:                    affiliateRebateRate,
 		AffiliateRebateFreezeHours:             affiliateRebateFreezeHours,
 		AffiliateRebateDurationDays:            affiliateRebateDurationDays,
@@ -1993,6 +2019,9 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		CustomEndpoints:                                        dto.ParseCustomEndpoints(updatedSettings.CustomEndpoints),
 		DefaultConcurrency:                                     updatedSettings.DefaultConcurrency,
 		DefaultBalance:                                         updatedSettings.DefaultBalance,
+		DailyCheckinEnabled:                                    updatedSettings.DailyCheckinEnabled,
+		DailyCheckinReward:                                     updatedSettings.DailyCheckinReward,
+		DailyCheckinWeeklyBonus:                                updatedSettings.DailyCheckinWeeklyBonus,
 		AffiliateRebateRate:                                    updatedSettings.AffiliateRebateRate,
 		AffiliateRebateFreezeHours:                             updatedSettings.AffiliateRebateFreezeHours,
 		AffiliateRebateDurationDays:                            updatedSettings.AffiliateRebateDurationDays,

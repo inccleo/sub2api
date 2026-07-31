@@ -149,6 +149,9 @@ type SystemSettings struct {
 
 	DefaultConcurrency           int
 	DefaultBalance               float64
+	DailyCheckinEnabled          bool
+	DailyCheckinReward           float64
+	DailyCheckinWeeklyBonus      float64
 	RiskControlEnabled           bool
 	CyberSessionBlockEnabled     bool
 	CyberSessionBlockTTLSeconds  int

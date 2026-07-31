@@ -308,6 +308,15 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.DefaultBalance != after.DefaultBalance {
 		changed = append(changed, "default_balance")
 	}
+	if before.DailyCheckinEnabled != after.DailyCheckinEnabled {
+		changed = append(changed, "daily_checkin_enabled")
+	}
+	if before.DailyCheckinReward != after.DailyCheckinReward {
+		changed = append(changed, "daily_checkin_reward")
+	}
+	if before.DailyCheckinWeeklyBonus != after.DailyCheckinWeeklyBonus {
+		changed = append(changed, "daily_checkin_weekly_bonus")
+	}
 	if before.AffiliateRebateRate != after.AffiliateRebateRate {
 		changed = append(changed, "affiliate_rebate_rate")
 	}

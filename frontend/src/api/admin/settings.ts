@@ -379,6 +379,9 @@ export interface SystemSettings {
   login_agreement_documents: LoginAgreementDocument[];
   // Default settings
   default_balance: number;
+  daily_checkin_enabled: boolean;
+  daily_checkin_reward: number;
+  daily_checkin_weekly_bonus: number;
   affiliate_rebate_rate: number;
   affiliate_rebate_freeze_hours: number;
   affiliate_rebate_duration_days: number;
@@ -693,6 +696,9 @@ export interface UpdateSettingsRequest {
   login_agreement_updated_at?: string;
   login_agreement_documents?: LoginAgreementDocument[];
   default_balance?: number;
+  daily_checkin_enabled?: boolean;
+  daily_checkin_reward?: number;
+  daily_checkin_weekly_bonus?: number;
   affiliate_rebate_rate?: number;
   affiliate_rebate_freeze_hours?: number;
   affiliate_rebate_duration_days?: number;

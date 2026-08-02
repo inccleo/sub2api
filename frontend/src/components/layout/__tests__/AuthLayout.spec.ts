@@ -21,29 +21,32 @@ describe('AuthLayout branding', () => {
     fetchPublicSettings.mockClear()
   })
 
-  it('preserves the configured logo and title by default', () => {
+  it('preserves the configured logo, title and subtitle by default', () => {
     const wrapper = mount(AuthLayout)
 
     expect(wrapper.get('[data-testid="auth-brand-logo"]').attributes('src')).toBe(
       '/configured-logo.png'
     )
     expect(wrapper.get('[data-testid="auth-brand-title"]').text()).toBe('TOPAPI')
+    expect(wrapper.get('[data-testid="auth-brand-subtitle"]').text()).toBe('AI API Platform')
     expect(fetchPublicSettings).toHaveBeenCalledOnce()
   })
 
-  it('supports a wide page-specific logo with the brand title hidden', () => {
+  it('prefers the configured site logo over a page-level logoSrc override', () => {
     const wrapper = mount(AuthLayout, {
       props: {
-        logoSrc: '/uploads/topopenai-logo-wide.png',
+        logoSrc: '/uploads/hardcoded-logo.png',
         showBrandTitle: false,
+        showBrandSubtitle: false,
         wideLogo: true
       }
     })
 
     expect(wrapper.get('[data-testid="auth-brand-logo"]').attributes('src')).toBe(
-      '/uploads/topopenai-logo-wide.png'
+      '/configured-logo.png'
     )
     expect(wrapper.find('[data-testid="auth-brand-title"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="auth-brand-subtitle"]').exists()).toBe(false)
     expect(
       wrapper.get('[data-testid="auth-brand-logo"]').element.parentElement?.classList.contains('w-64')
     ).toBe(true)

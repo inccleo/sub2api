@@ -69,6 +69,9 @@ func RegisterAdminRoutes(
 		// 优惠码管理
 		registerPromoCodeRoutes(admin, h)
 
+		// 每日签到记录
+		registerDailyCheckinRoutes(admin, h)
+
 		// 系统设置
 		registerSettingsRoutes(admin, h)
 
@@ -534,6 +537,15 @@ func registerPromoCodeRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		promoCodes.PUT("/:id", h.Admin.Promo.Update)
 		promoCodes.DELETE("/:id", h.Admin.Promo.Delete)
 		promoCodes.GET("/:id/usages", h.Admin.Promo.GetUsages)
+	}
+}
+
+func registerDailyCheckinRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	checkins := admin.Group("/checkins")
+	{
+		// Register /stats before any parameterized routes.
+		checkins.GET("/stats", h.DailyCheckin.AdminStats)
+		checkins.GET("", h.DailyCheckin.AdminList)
 	}
 }
 

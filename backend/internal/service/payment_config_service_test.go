@@ -481,6 +481,7 @@ func TestUpdatePaymentConfig_OmittedVisibleMethodRoutingIsPreserved(t *testing.T
 		SettingPaymentVisibleMethodAlipaySource:  VisibleMethodSourceEasyPayAlipay,
 		SettingPaymentVisibleMethodWxpayEnabled:  "false",
 		SettingPaymentVisibleMethodWxpaySource:   VisibleMethodSourceOfficialWechat,
+		SettingEnterpriseQRCodeURL:               "https://example.com/enterprise-qr.png",
 	}
 	initial := make(map[string]string, len(wantVisibleMethods))
 	for key, value := range wantVisibleMethods {
@@ -500,6 +501,7 @@ func TestUpdatePaymentConfig_OmittedVisibleMethodRoutingIsPreserved(t *testing.T
 		SettingPaymentVisibleMethodAlipaySource,
 		SettingPaymentVisibleMethodWxpayEnabled,
 		SettingPaymentVisibleMethodWxpaySource,
+		SettingEnterpriseQRCodeURL,
 	}
 	for _, key := range visibleMethodKeys {
 		if _, ok := repo.updates[key]; ok {
@@ -519,15 +521,17 @@ func TestUpdatePaymentConfig_PersistsExplicitEmptyAndFalseValues(t *testing.T) {
 		SettingEnabledPaymentTypes: "alipay,wxpay",
 		SettingBalancePayDisabled:  "true",
 		SettingProductNamePrefix:   "existing",
+		SettingEnterpriseQRCodeURL: "https://example.com/enterprise-qr.png",
 	}}
 	svc := &PaymentConfigService{settingRepo: repo}
 
 	falseValue := false
 	emptyString := ""
 	err := svc.UpdatePaymentConfig(context.Background(), UpdatePaymentConfigRequest{
-		EnabledTypes:      []string{},
-		BalanceDisabled:   &falseValue,
-		ProductNamePrefix: &emptyString,
+		EnabledTypes:        []string{},
+		BalanceDisabled:     &falseValue,
+		ProductNamePrefix:   &emptyString,
+		EnterpriseQRCodeURL: &emptyString,
 	})
 	if err != nil {
 		t.Fatalf("UpdatePaymentConfig returned error: %v", err)
@@ -537,6 +541,7 @@ func TestUpdatePaymentConfig_PersistsExplicitEmptyAndFalseValues(t *testing.T) {
 		SettingEnabledPaymentTypes: "",
 		SettingBalancePayDisabled:  "false",
 		SettingProductNamePrefix:   "",
+		SettingEnterpriseQRCodeURL: "",
 	}
 	if len(repo.updates) != len(want) {
 		t.Fatalf("updates = %v, want exactly %v", repo.updates, want)

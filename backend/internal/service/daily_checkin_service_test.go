@@ -193,7 +193,6 @@ func (s *dailyCheckinAuthCacheStub) InvalidateAuthCacheByUserID(ctx context.Cont
 
 func (*dailyCheckinAuthCacheStub) InvalidateAuthCacheByGroupID(context.Context, int64) {}
 
-
 func TestDailyCheckinServiceHistoryAndAdminList(t *testing.T) {
 	repo := newDailyCheckinTestRepo()
 	svc := NewDailyCheckinService(repo, newDailyCheckinTestSettings(true, 0.10, 0.50), nil, nil, nil)
@@ -267,7 +266,6 @@ func (r *dailyCheckinTestRepo) AddUserBalance(_ context.Context, _ int64, amount
 	r.balance += amount
 	return r.balance, nil
 }
-
 
 func (r *dailyCheckinTestRepo) ListByUser(_ context.Context, userID int64, limit int) ([]DailyCheckinRecord, error) {
 	if limit <= 0 {

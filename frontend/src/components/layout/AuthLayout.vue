@@ -48,7 +48,11 @@
           >
             {{ siteName }}
           </h1>
-          <p class="text-sm text-gray-500 dark:text-dark-400">
+          <p
+            v-if="showBrandSubtitle"
+            data-testid="auth-brand-subtitle"
+            class="text-sm text-gray-500 dark:text-dark-400"
+          >
             {{ siteSubtitle }}
           </p>
         </template>
@@ -80,17 +84,20 @@ import { sanitizeUrl } from '@/utils/url'
 const props = withDefaults(defineProps<{
   logoSrc?: string
   showBrandTitle?: boolean
+  showBrandSubtitle?: boolean
   wideLogo?: boolean
 }>(), {
   logoSrc: '',
   showBrandTitle: true,
+  showBrandSubtitle: true,
   wideLogo: false
 })
 
 const appStore = useAppStore()
 
 const siteName = computed(() => appStore.siteName || 'Sub2API')
-const resolvedLogo = computed(() => sanitizeUrl(props.logoSrc || appStore.siteLogo || '', {
+// Prefer backend-configured site_logo; logoSrc is only an optional override.
+const resolvedLogo = computed(() => sanitizeUrl(appStore.siteLogo || props.logoSrc || '', {
   allowRelative: true,
   allowDataUrl: true
 }))

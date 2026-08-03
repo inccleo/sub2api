@@ -443,6 +443,50 @@ export default {
       deleteConfirm: '确定要删除该公告吗？此操作无法撤销。'
     },
 
+    // Daily Check-ins
+    checkins: {
+      title: '签到记录',
+      description: '查看用户每日签到与连续奖励发放记录',
+      searchPlaceholder: '搜索邮箱 / 用户名 / 用户 ID',
+      startDate: '开始日期',
+      endDate: '结束日期',
+      loadFailed: '加载签到记录失败',
+      statsLoadFailed: '加载签到统计失败',
+      timezoneHint: '统计与筛选按服务器时区 {tz}',
+      stats: {
+        todayCheckins: '今日签到',
+        yesterdayCheckins: '昨日签到',
+        last7DaysCheckins: '近 7 天签到',
+        totalCheckins: '累计签到',
+        uniqueUsers: '签到用户数',
+        todayReward: '今日发放',
+        yesterdayReward: '昨日发放',
+        last7DaysReward: '近 7 天发放',
+        totalReward: '累计发放',
+        totalBonus: '累计连续奖励',
+        todayBonusCount: '今日连续奖励',
+        rewardSuffix: '奖励 ${amount}',
+        times: '{count} 次',
+      },
+      presets: {
+        all: '全部',
+        today: '今天',
+        yesterday: '昨天',
+        last7Days: '近 7 天',
+        thisMonth: '本月',
+        custom: '自定义',
+      },
+      columns: {
+        user: '用户',
+        checkinDate: '签到日期',
+        streak: '连续天数',
+        baseReward: '基础奖励',
+        bonusReward: '连续奖励',
+        totalReward: '合计奖励',
+        createdAt: '领取时间',
+      },
+    },
+
     // Promo Codes
     promo: {
       title: '优惠码管理',

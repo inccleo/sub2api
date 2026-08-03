@@ -9,6 +9,7 @@ const sidebarSource = readFileSync(resolve(dir, '../AppSidebar.vue'), 'utf8')
 const homeViewSource = readFileSync(resolve(dir, '../../../views/HomeView.vue'), 'utf8')
 const keyUsageViewSource = readFileSync(resolve(dir, '../../../views/KeyUsageView.vue'), 'utf8')
 const loginViewSource = readFileSync(resolve(dir, '../../../views/auth/LoginView.vue'), 'utf8')
+const authLayoutSource = readFileSync(resolve(dir, '../AuthLayout.vue'), 'utf8')
 
 describe('site_logo sanitization', () => {
   it('AppSidebar imports sanitizeUrl and applies it to siteLogo', () => {
@@ -39,8 +40,11 @@ describe('site_logo sanitization', () => {
     )
   })
 
-  it('lets the login page use the configured site logo', () => {
-    expect(loginViewSource).toContain('<AuthLayout>')
+  it('lets the login page use the configured site logo without a hardcoded override', () => {
     expect(loginViewSource).not.toContain('logo-src=')
+    expect(loginViewSource).not.toContain('topopenai-logo-wide')
+    expect(loginViewSource).toContain(':show-brand-title="false"')
+    expect(loginViewSource).toContain(':show-brand-subtitle="false"')
+    expect(authLayoutSource).toContain('appStore.siteLogo || props.logoSrc')
   })
 })

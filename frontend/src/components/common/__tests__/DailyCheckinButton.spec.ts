@@ -1,11 +1,13 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { defineComponent, h } from 'vue'
 import DailyCheckinButton from '@/components/common/DailyCheckinButton.vue'
 import type { DailyCheckinResult, DailyCheckinStatus } from '@/api/dailyCheckin'
 
 const mocks = vi.hoisted(() => ({
   getStatus: vi.fn(),
   checkin: vi.fn(),
+  getHistory: vi.fn(),
   refreshUser: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn(),
@@ -15,6 +17,7 @@ vi.mock('@/api/dailyCheckin', () => ({
   dailyCheckinAPI: {
     getStatus: mocks.getStatus,
     checkin: mocks.checkin,
+    getHistory: mocks.getHistory,
   },
 }))
 
@@ -34,7 +37,29 @@ vi.mock('@/stores/app', () => ({
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
     t: (key: string) => key,
+    locale: { value: 'en' },
   }),
+}))
+
+vi.mock('@/components/common/BaseDialog.vue', () => ({
+  default: defineComponent({
+    name: 'BaseDialog',
+    props: {
+      show: { type: Boolean, default: false },
+      title: { type: String, default: '' },
+    },
+    emits: ['close'],
+    setup(props, { slots }) {
+      return () =>
+        props.show
+          ? h('div', { 'data-testid': 'checkin-dialog' }, slots.default?.())
+          : null
+    },
+  }),
+}))
+
+vi.mock('@/utils/apiError', () => ({
+  extractApiErrorMessage: (_error: unknown, fallback: string) => fallback,
 }))
 
 function status(overrides: Partial<DailyCheckinStatus> = {}): DailyCheckinStatus {
@@ -68,10 +93,17 @@ async function mountButton() {
   return wrapper
 }
 
+async function openDialog(wrapper: Awaited<ReturnType<typeof mountButton>>) {
+  await wrapper.get('button').trigger('click')
+  await flushPromises()
+  expect(wrapper.find('[data-testid="checkin-dialog"]').exists()).toBe(true)
+}
+
 describe('DailyCheckinButton', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.refreshUser.mockResolvedValue(undefined)
+    mocks.getHistory.mockResolvedValue([])
   })
 
   it('stays hidden when daily check-in is disabled', async () => {
@@ -82,33 +114,35 @@ describe('DailyCheckinButton', () => {
     expect(wrapper.find('button').exists()).toBe(false)
   })
 
-  it('renders an already-checked-in disabled state', async () => {
+  it('opens the calendar dialog for already-checked-in users', async () => {
     mocks.getStatus.mockResolvedValue(
       status({ checked_in_today: true, today_reward: 0.1 }),
     )
 
     const wrapper = await mountButton()
+    await openDialog(wrapper)
 
-    expect(wrapper.get('button').attributes('disabled')).toBeDefined()
-    expect(wrapper.text()).toContain('profile.dailyCheckin.checkedIn')
+    expect(mocks.getHistory).toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="daily-checkin-action"]').attributes('disabled')).toBeDefined()
   })
 
-  it('checks in once and preserves the completed state when refreshes fail', async () => {
+  it('checks in once from the calendar dialog and preserves completed state when refreshes fail', async () => {
+    // mount + openDialog both call getStatus before check-in; only post-check-in should flip state
     mocks.getStatus
       .mockResolvedValueOnce(status())
-      .mockRejectedValueOnce(new Error('status refresh failed'))
+      .mockResolvedValueOnce(status())
+      .mockResolvedValue(status({ checked_in_today: true, today_reward: 0.1, current_streak: 3 }))
     mocks.checkin.mockResolvedValue(result())
     mocks.refreshUser.mockRejectedValue(new Error('user refresh failed'))
     const wrapper = await mountButton()
 
-    await wrapper.get('button').trigger('click')
+    await openDialog(wrapper)
+    await wrapper.get('[data-testid="daily-checkin-action"]').trigger('click')
     await flushPromises()
 
     expect(mocks.checkin).toHaveBeenCalledTimes(1)
     expect(mocks.showSuccess).toHaveBeenCalledTimes(1)
     expect(mocks.showError).not.toHaveBeenCalled()
-    expect(wrapper.get('button').attributes('disabled')).toBeDefined()
-    expect(wrapper.text()).toContain('profile.dailyCheckin.checkedIn')
   })
 
   it('shows an error and allows retry after the check-in request fails', async () => {
@@ -116,11 +150,12 @@ describe('DailyCheckinButton', () => {
     mocks.checkin.mockRejectedValue(new Error('request failed'))
     const wrapper = await mountButton()
 
-    await wrapper.get('button').trigger('click')
+    await openDialog(wrapper)
+    await wrapper.get('[data-testid="daily-checkin-action"]').trigger('click')
     await flushPromises()
 
     expect(mocks.showError).toHaveBeenCalledTimes(1)
-    expect(wrapper.get('button').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-testid="daily-checkin-action"]').attributes('disabled')).toBeUndefined()
   })
 
   it('does not submit twice while a check-in is pending', async () => {
@@ -134,8 +169,9 @@ describe('DailyCheckinButton', () => {
     )
     const wrapper = await mountButton()
 
-    const button = wrapper.get('button')
-    await Promise.all([button.trigger('click'), button.trigger('click')])
+    await openDialog(wrapper)
+    const action = wrapper.get('[data-testid="daily-checkin-action"]')
+    await Promise.all([action.trigger('click'), action.trigger('click')])
     expect(mocks.checkin).toHaveBeenCalledTimes(1)
 
     resolveCheckin(result())

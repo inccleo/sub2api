@@ -130,6 +130,7 @@ func RegisterUserRoutes(
 		checkin := authenticated.Group("/checkin")
 		{
 			checkin.GET("/status", h.DailyCheckin.GetStatus)
+			checkin.GET("/history", h.DailyCheckin.GetHistory)
 			checkin.POST("", h.DailyCheckin.Checkin)
 		}
 

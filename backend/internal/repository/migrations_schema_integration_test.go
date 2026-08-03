@@ -42,6 +42,21 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	require.NoError(t, tx.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM schema_migrations").Scan(&applied))
 	require.GreaterOrEqual(t, applied, 7, "expected schema_migrations to contain applied migrations")
 
+	for _, filename := range []string{
+		"192_group_profit_control.sql",
+		"192_user_platform_quotas_add_kimi.sql",
+		"193_daily_checkins.sql",
+		"193_group_profit_control_auth_cache_invalidation.sql",
+	} {
+		var exists bool
+		require.NoError(t, tx.QueryRowContext(
+			context.Background(),
+			"SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE filename = $1)",
+			filename,
+		).Scan(&exists))
+		require.Truef(t, exists, "expected migration %s to be applied", filename)
+	}
+
 	// users: columns required by repository queries
 	requireColumn(t, tx, "users", "username", "character varying", 100, false)
 	requireColumn(t, tx, "users", "notes", "text", 0, false)

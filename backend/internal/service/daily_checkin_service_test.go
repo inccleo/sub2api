@@ -193,6 +193,35 @@ func (s *dailyCheckinAuthCacheStub) InvalidateAuthCacheByUserID(ctx context.Cont
 
 func (*dailyCheckinAuthCacheStub) InvalidateAuthCacheByGroupID(context.Context, int64) {}
 
+func TestDailyCheckinServiceHistoryAndAdminList(t *testing.T) {
+	repo := newDailyCheckinTestRepo()
+	svc := NewDailyCheckinService(repo, newDailyCheckinTestSettings(true, 0.10, 0.50), nil, nil, nil)
+	now := time.Date(2026, 7, 1, 8, 0, 0, 0, timezone.Location())
+	svc.now = func() time.Time { return now }
+
+	for day := 1; day <= 3; day++ {
+		_, err := svc.Checkin(context.Background(), 1)
+		require.NoError(t, err)
+		now = now.AddDate(0, 0, 1)
+	}
+
+	history, err := svc.GetHistory(context.Background(), 1, 10)
+	require.NoError(t, err)
+	require.Len(t, history, 3)
+	require.Equal(t, 3, history[0].StreakCount)
+
+	items, total, err := svc.AdminList(context.Background(), DailyCheckinListFilter{Page: 1, PageSize: 20})
+	require.NoError(t, err)
+	require.Equal(t, int64(3), total)
+	require.Len(t, items, 3)
+	require.Equal(t, "user@example.com", items[0].UserEmail)
+
+	stats, err := svc.AdminStats(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, int64(3), stats.TotalCheckins)
+	require.Equal(t, int64(1), stats.UniqueUsers)
+}
+
 type dailyCheckinTestRepo struct {
 	records map[string]*DailyCheckinRecord
 	balance float64
@@ -236,6 +265,96 @@ func (r *dailyCheckinTestRepo) Create(_ context.Context, record *DailyCheckinRec
 func (r *dailyCheckinTestRepo) AddUserBalance(_ context.Context, _ int64, amount float64) (float64, error) {
 	r.balance += amount
 	return r.balance, nil
+}
+
+func (r *dailyCheckinTestRepo) ListByUser(_ context.Context, userID int64, limit int) ([]DailyCheckinRecord, error) {
+	if limit <= 0 {
+		limit = 30
+	}
+	out := make([]DailyCheckinRecord, 0)
+	for _, record := range r.records {
+		if record.UserID != userID {
+			continue
+		}
+		copyRecord := *record
+		out = append(out, copyRecord)
+	}
+	for i := 0; i < len(out); i++ {
+		for j := i + 1; j < len(out); j++ {
+			if out[j].CheckinDate.After(out[i].CheckinDate) {
+				out[i], out[j] = out[j], out[i]
+			}
+		}
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (r *dailyCheckinTestRepo) List(_ context.Context, filter DailyCheckinListFilter) ([]DailyCheckinListItem, int64, error) {
+	items := make([]DailyCheckinListItem, 0, len(r.records))
+	for _, record := range r.records {
+		if filter.UserID != nil && record.UserID != *filter.UserID {
+			continue
+		}
+		copyRecord := *record
+		items = append(items, DailyCheckinListItem{
+			DailyCheckinRecord: copyRecord,
+			UserEmail:          "user@example.com",
+			Username:           "user",
+		})
+	}
+	total := int64(len(items))
+	page := filter.Page
+	if page <= 0 {
+		page = 1
+	}
+	pageSize := filter.PageSize
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	start := (page - 1) * pageSize
+	if start >= len(items) {
+		return []DailyCheckinListItem{}, total, nil
+	}
+	end := start + pageSize
+	if end > len(items) {
+		end = len(items)
+	}
+	return items[start:end], total, nil
+}
+
+func (r *dailyCheckinTestRepo) AdminStats(_ context.Context, today, yesterday, last7Start time.Time) (*DailyCheckinAdminStats, error) {
+	stats := &DailyCheckinAdminStats{}
+	todayKey := today.Format("2006-01-02")
+	yesterdayKey := yesterday.Format("2006-01-02")
+	last7Key := last7Start.Format("2006-01-02")
+	users := make(map[int64]struct{})
+	for _, record := range r.records {
+		dateKey := record.CheckinDate.Format("2006-01-02")
+		stats.TotalCheckins++
+		stats.TotalReward += record.TotalReward
+		stats.TotalBonusReward += record.BonusReward
+		users[record.UserID] = struct{}{}
+		if dateKey == todayKey {
+			stats.TodayCheckins++
+			stats.TodayRewardTotal += record.TotalReward
+			if record.BonusReward > 0 {
+				stats.TodayBonusCount++
+			}
+		}
+		if dateKey == yesterdayKey {
+			stats.YesterdayCheckins++
+			stats.YesterdayRewardTotal += record.TotalReward
+		}
+		if dateKey >= last7Key {
+			stats.Last7DaysCheckins++
+			stats.Last7DaysRewardTotal += record.TotalReward
+		}
+	}
+	stats.UniqueUsers = int64(len(users))
+	return stats, nil
 }
 
 func dailyCheckinTestKey(userID int64, date time.Time) string {

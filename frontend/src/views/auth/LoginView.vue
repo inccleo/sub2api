@@ -1,5 +1,9 @@
 <template>
-  <AuthLayout>
+  <AuthLayout
+    :show-brand-title="false"
+    :show-brand-subtitle="false"
+    wide-logo
+  >
     <div class="space-y-6">
       <!-- Title -->
       <div class="text-center">

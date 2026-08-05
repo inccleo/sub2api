@@ -139,13 +139,13 @@
                   class="inline-flex items-center gap-1 rounded-md bg-gray-100 px-2 py-0.5 font-mono text-xs text-gray-800 dark:bg-dark-700/60 dark:text-gray-200"
                 >
                   <span class="font-sans text-gray-400 dark:text-dark-500">{{ tierLabel(iv) }}</span>
-                  {{ paidRequestPrice(iv.per_request_price)
+                  {{ paidRequestPrice(m, iv.per_request_price)
                   }}<span class="font-sans text-gray-400 dark:text-dark-500">{{ perUnitSuffix(m) }}</span>
                 </span>
               </div>
               <template v-else-if="m.pricing?.per_request_price != null">
                 <span class="font-mono font-semibold text-gray-900 dark:text-gray-50">
-                  {{ paidRequestPrice(m.pricing.per_request_price) }}
+                  {{ paidRequestPrice(m, m.pricing.per_request_price) }}
                 </span>
                 <span class="ml-1 text-xs text-gray-400 dark:text-dark-500">{{ perUnitSuffix(m) }}</span>
               </template>
@@ -183,11 +183,16 @@
             <span v-else class="text-gray-400 dark:text-dark-500">-</span>
           </td>
 
-          <!-- 折扣倍率(专属倍率划线展示原倍率) -->
+          <!-- 折扣倍率(生图独立倍率行展示独立倍率;专属倍率划线展示原倍率) -->
           <td
             class="border-l border-gray-100 py-2.5 pl-3 pr-5 text-right align-middle font-mono text-xs dark:border-dark-700/60"
           >
-            <template v-if="hasCustomRate">
+            <span
+              v-if="usesIndependentImageRate(m)"
+              class="font-bold text-gray-700 dark:text-gray-300"
+              >{{ displayRate(requestRate(m)) }}x</span
+            >
+            <template v-else-if="hasCustomRate">
               <span class="mr-1 text-gray-400 line-through dark:text-dark-500">{{ displayRate(rateMultiplier) }}x</span>
               <span class="font-bold text-primary-600 dark:text-primary-400">{{ displayRate(effectiveRate) }}x</span>
             </template>
@@ -220,6 +225,9 @@ const props = defineProps<{
   rateMultiplier: number
   /** 用户专属倍率;与默认不同,实付价按此计算并划线展示原倍率。 */
   userRateMultiplier?: number | null
+  /** 生图独立倍率:true 时图片计费模型的实付倍率取 imageRateMultiplier,不取分组/专属倍率。 */
+  imageRateIndependent?: boolean
+  imageRateMultiplier?: number | null
 }>()
 
 const { t } = useI18n()
@@ -276,17 +284,27 @@ const MIN_DECIMALS = 2
  */
 function paidPerMillion(value: number | null | undefined): string {
   if (value == null) return '-'
-  return formatConvertedPrice(value, PER_MILLION)
+  return formatConvertedPrice(value, PER_MILLION, effectiveRate.value)
 }
 
-/** 按次 / 按图片同样折算为美元现金成本，不换算 1M。 */
-function paidRequestPrice(value: number | null | undefined): string {
+/** 图片计费模型且分组开启生图独立倍率:实付倍率取独立倍率,与计费口径一致。 */
+function usesIndependentImageRate(m: PlazaModel): boolean {
+  return billingMode(m) === BILLING_MODE_IMAGE && props.imageRateIndependent === true
+}
+
+/** 按次/按图片行的生效倍率。 */
+function requestRate(m: PlazaModel): number {
+  return usesIndependentImageRate(m) ? (props.imageRateMultiplier ?? 1) : effectiveRate.value
+}
+
+/** 按次 / 按图片单价(乘该行生效倍率并按展示汇率折算,不换算 1M)。 */
+function paidRequestPrice(m: PlazaModel, value: number | null | undefined): string {
   if (value == null) return '-'
-  return formatConvertedPrice(value, 1)
+  return formatConvertedPrice(value, 1, requestRate(m))
 }
 
-function formatConvertedPrice(value: number, scale: number): string {
-  const converted = (value * effectiveRate.value * scale) / DISPLAY_USD_TO_CNY_RATE
+function formatConvertedPrice(value: number, scale: number, rate: number): string {
+  const converted = (value * rate * scale) / DISPLAY_USD_TO_CNY_RATE
   return formatScaled(roundDisplayAmount(converted), 1, MIN_DECIMALS)
 }
 

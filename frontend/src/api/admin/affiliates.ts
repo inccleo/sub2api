@@ -47,6 +47,7 @@ export interface AffiliateInviteRecord {
 }
 
 export interface AffiliateRebateRecord {
+  has_order: boolean
   order_id: number
   out_trade_no: string
   inviter_id: number

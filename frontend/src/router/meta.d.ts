@@ -64,5 +64,12 @@ declare module 'vue-router' {
      * i18n key for the page description
      */
     descriptionKey?: string
+
+    /**
+     * Lock the main content area to the viewport height and prevent page-level
+     * scrolling (the page manages its own internal scroll regions).
+     * @default false
+     */
+    fillHeight?: boolean
   }
 }

@@ -82,6 +82,14 @@ func RegisterUserRoutes(
 			keys.DELETE("/:id", h.APIKey.Delete)
 		}
 
+		imageWorkbench := authenticated.Group("/image-workbench")
+		imageWorkbench.Use(middleware.ClientRequestID())
+		{
+			imageWorkbench.GET("/config", h.ImageWorkbench.Config)
+			imageWorkbench.POST("/tasks", middleware.RequestBodyLimit(handler.ImageWorkbenchMaxRequestBody), h.ImageWorkbench.Submit)
+			imageWorkbench.GET("/tasks/:task_id", h.ImageWorkbench.Get)
+		}
+
 		// 用户可用分组（非管理员接口）
 		groups := authenticated.Group("/groups")
 		{

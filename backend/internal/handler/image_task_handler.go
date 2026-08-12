@@ -26,6 +26,8 @@ type AsyncImageHandler struct {
 	execute func(platform string, c *gin.Context)
 }
 
+const imageTaskPollBaseContextKey = "image_task_poll_base"
+
 func NewAsyncImageHandler(tasks *service.ImageTaskService, openAI *OpenAIGatewayHandler) *AsyncImageHandler {
 	h := &AsyncImageHandler{tasks: tasks, openAI: openAI}
 	h.execute = h.executeWithGateway
@@ -109,6 +111,11 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 	}
 
 	pollURL := imageTaskPollURL(c.Request.URL.Path, task.ID)
+	if pollBase, ok := c.Get(imageTaskPollBaseContextKey); ok {
+		if base, valid := pollBase.(string); valid && strings.HasPrefix(base, "/") {
+			pollURL = strings.TrimRight(base, "/") + "/" + task.ID
+		}
+	}
 	c.Header("Cache-Control", "no-store")
 	c.Header("Location", pollURL)
 	c.Header("Retry-After", "3")

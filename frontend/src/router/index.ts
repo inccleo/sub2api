@@ -229,6 +229,20 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/images',
+    name: 'ImageWorkbench',
+    component: () => import('@/views/user/ImageWorkbenchView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Image Studio',
+      titleKey: 'imageWorkbench.title',
+      descriptionKey: 'imageWorkbench.description',
+      // 禁止整页滚动：由页面内部（右侧历史列表）自行滚动
+      fillHeight: true
+    }
+  },
+  {
     path: '/usage',
     name: 'Usage',
     component: () => import('@/views/user/UsageView.vue'),

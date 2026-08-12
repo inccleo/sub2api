@@ -278,6 +278,18 @@ type APIKeyService struct {
 	authInvalidationFailures  atomic.Uint64
 	lastUsedTouchL1           sync.Map // keyID -> nextAllowedAt(time.Time)
 	lastUsedTouchSF           singleflight.Group
+	workbenchKeySF            singleflight.Group
+}
+
+const ImageWorkbenchAPIKeyName = "__image_workbench__"
+
+var ErrImageWorkbenchUnavailable = infraerrors.ServiceUnavailable(
+	"IMAGE_WORKBENCH_UNAVAILABLE",
+	"no image-enabled OpenAI group is available for this account",
+)
+
+func IsImageWorkbenchAPIKey(apiKey *APIKey) bool {
+	return apiKey != nil && apiKey.Name == ImageWorkbenchAPIKeyName
 }
 
 type APIKeyAuthLookupMetrics struct {
@@ -355,12 +367,7 @@ func (s *APIKeyService) GenerateKey() (string, error) {
 	}
 
 	// 转换为十六进制字符串并添加前缀
-	prefix := s.cfg.Default.APIKeyPrefix
-	if prefix == "" {
-		prefix = "sk-"
-	}
-
-	key := prefix + hex.EncodeToString(bytes)
+	key := apiKeyPrefix(s.cfg) + hex.EncodeToString(bytes)
 	return key, nil
 }
 
@@ -1032,6 +1039,96 @@ func (s *APIKeyService) SearchAPIKeys(ctx context.Context, userID int64, keyword
 		return nil, fmt.Errorf("search api keys: %w", err)
 	}
 	return keys, nil
+}
+
+// GetOrCreateImageWorkbenchKey returns the system-owned key used by the online
+// image workbench. Its credential remains server-side and all generation calls
+// still pass through the regular API-key gateway middleware.
+func (s *APIKeyService) GetOrCreateImageWorkbenchKey(ctx context.Context, userID int64) (*APIKey, error) {
+	value, err, _ := s.workbenchKeySF.Do(strconv.FormatInt(userID, 10), func() (any, error) {
+		groups, err := s.GetAvailableGroups(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+
+		var selected *Group
+		availableGroupIDs := make(map[int64]struct{})
+		for i := range groups {
+			group := &groups[i]
+			if group.Platform != PlatformOpenAI || !group.AllowImageGeneration || !group.IsActive() {
+				continue
+			}
+			availableGroupIDs[group.ID] = struct{}{}
+			if selected == nil || group.SortOrder < selected.SortOrder ||
+				(group.SortOrder == selected.SortOrder && group.ID < selected.ID) {
+				selected = group
+			}
+		}
+		if selected == nil {
+			return nil, ErrImageWorkbenchUnavailable
+		}
+
+		keys, err := s.SearchAPIKeys(ctx, userID, ImageWorkbenchAPIKeyName, 10)
+		if err != nil {
+			return nil, err
+		}
+		for i := range keys {
+			if keys[i].Name != ImageWorkbenchAPIKeyName {
+				continue
+			}
+			key, err := s.GetByID(ctx, keys[i].ID)
+			if err != nil {
+				return nil, err
+			}
+			// Before this feature existed the reserved name was valid for user
+			// keys. Never adopt a credential the user may already know. A managed
+			// key is recognizable by its server-generated marker prefix.
+			if !strings.HasPrefix(key.Key, imageWorkbenchCredentialPrefix(s.cfg)) {
+				legacyName := fmt.Sprintf("image-workbench-legacy-%d", key.ID)
+				if _, err := s.Update(ctx, key.ID, userID, UpdateAPIKeyRequest{Name: &legacyName}); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			if key.GroupID != nil {
+				if _, ok := availableGroupIDs[*key.GroupID]; ok && key.Status == StatusActive {
+					return key, nil
+				}
+			}
+			status := StatusActive
+			return s.Update(ctx, key.ID, userID, UpdateAPIKeyRequest{GroupID: &selected.ID, Status: &status})
+		}
+
+		credential, err := s.GenerateKey()
+		if err != nil {
+			return nil, err
+		}
+		credential = imageWorkbenchCredentialPrefix(s.cfg) + strings.TrimPrefix(credential, apiKeyPrefix(s.cfg))
+		return s.Create(ctx, userID, CreateAPIKeyRequest{
+			Name:      ImageWorkbenchAPIKeyName,
+			GroupID:   &selected.ID,
+			CustomKey: &credential,
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	key, ok := value.(*APIKey)
+	if !ok || key == nil {
+		return nil, ErrImageWorkbenchUnavailable
+	}
+	return key, nil
+}
+
+func apiKeyPrefix(cfg *config.Config) string {
+	if cfg != nil && cfg.Default.APIKeyPrefix != "" {
+		return cfg.Default.APIKeyPrefix
+	}
+	return "sk-"
+}
+
+func imageWorkbenchCredentialPrefix(cfg *config.Config) string {
+	return apiKeyPrefix(cfg) + "iwb-"
 }
 
 // GetUserAllowedGroupIDSet 返回 user_allowed_groups 授权给该用户的专属分组 ID 集合。

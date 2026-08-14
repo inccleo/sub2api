@@ -2465,7 +2465,6 @@ const handleClickOutside = (event: MouseEvent) => {
 
 onMounted(async () => {
   if (typeof window !== 'undefined') {
-    loadSavedAutoRefresh()
     desktopViewportMediaQuery = window.matchMedia(desktopViewportQuery)
     isDesktopViewport.value = desktopViewportMediaQuery.matches
     desktopViewportListener = (event: MediaQueryListEvent) => {

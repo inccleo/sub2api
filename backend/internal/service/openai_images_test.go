@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -252,7 +253,7 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_MultipartEditWithMaskAndNa
 
 	imageHeader := make(textproto.MIMEHeader)
 	imageHeader.Set("Content-Disposition", `form-data; name="image"; filename="source.png"`)
-	imageHeader.Set("Content-Type", "image/png")
+	imageHeader.Set("Content-Type", "application/octet-stream")
 	imagePart, err := writer.CreatePart(imageHeader)
 	require.NoError(t, err)
 	_, err = imagePart.Write([]byte("source-image-bytes"))
@@ -260,7 +261,7 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_MultipartEditWithMaskAndNa
 
 	maskHeader := make(textproto.MIMEHeader)
 	maskHeader.Set("Content-Disposition", `form-data; name="mask"; filename="mask.png"`)
-	maskHeader.Set("Content-Type", "image/png")
+	maskHeader.Set("Content-Type", "application/octet-stream")
 	maskPart, err := writer.CreatePart(maskHeader)
 	require.NoError(t, err)
 	_, err = maskPart.Write([]byte("mask-image-bytes"))
@@ -1651,7 +1652,7 @@ func TestOpenAIGatewayServiceForwardImages_OAuthEditsMultipartUsesResponsesAPI(t
 
 	imageHeader := make(textproto.MIMEHeader)
 	imageHeader.Set("Content-Disposition", `form-data; name="image"; filename="source.png"`)
-	imageHeader.Set("Content-Type", "image/png")
+	imageHeader.Set("Content-Type", "application/octet-stream")
 	imagePart, err := writer.CreatePart(imageHeader)
 	require.NoError(t, err)
 	_, err = imagePart.Write([]byte("png-image-content"))
@@ -1659,7 +1660,7 @@ func TestOpenAIGatewayServiceForwardImages_OAuthEditsMultipartUsesResponsesAPI(t
 
 	maskHeader := make(textproto.MIMEHeader)
 	maskHeader.Set("Content-Disposition", `form-data; name="mask"; filename="mask.png"`)
-	maskHeader.Set("Content-Type", "image/png")
+	maskHeader.Set("Content-Type", "application/octet-stream")
 	maskPart, err := writer.CreatePart(maskHeader)
 	require.NoError(t, err)
 	_, err = maskPart.Write([]byte("png-mask-content"))
@@ -1720,11 +1721,14 @@ func TestOpenAIGatewayServiceForwardImages_OAuthEditsMultipartUsesResponsesAPI(t
 
 func TestOpenAIGatewayServiceForwardImages_OAuthEditsStreamingTransformsEvents(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	remotePNG := []byte("\x89PNG\r\n\x1a\nremote-png-payload")
+	octetPNGDataURL := "data:application/octet-stream;base64," + base64.StdEncoding.EncodeToString(remotePNG)
+
 	body := []byte(`{
 		"model":"gpt-image-2",
 		"prompt":"replace background with aurora",
-		"images":[{"image_url":"https://example.com/source.png"}],
-		"mask":{"image_url":"https://example.com/mask.png"},
+		"images":[{"image_url":"` + octetPNGDataURL + `"}],
+		"mask":{"image_url":"` + octetPNGDataURL + `"},
 		"stream":true,
 		"response_format":"url"
 	}`)
@@ -1770,8 +1774,9 @@ func TestOpenAIGatewayServiceForwardImages_OAuthEditsStreamingTransformsEvents(t
 	require.NotNil(t, result)
 	require.Equal(t, 1, result.ImageCount)
 	require.Equal(t, "edit", gjson.GetBytes(upstream.lastBody, "tools.0.action").String())
-	require.Equal(t, "https://example.com/source.png", gjson.GetBytes(upstream.lastBody, "input.0.content.1.image_url").String())
-	require.Equal(t, "https://example.com/mask.png", gjson.GetBytes(upstream.lastBody, "tools.0.input_image_mask.image_url").String())
+	expectedInputImage := "data:image/png;base64," + base64.StdEncoding.EncodeToString(remotePNG)
+	require.Equal(t, expectedInputImage, gjson.GetBytes(upstream.lastBody, "input.0.content.1.image_url").String())
+	require.Equal(t, expectedInputImage, gjson.GetBytes(upstream.lastBody, "tools.0.input_image_mask.image_url").String())
 	events := parseOpenAIImageTestSSEEvents(rec.Body.String())
 	partial, ok := findOpenAIImageTestSSEEvent(events, "image_edit.partial_image")
 	require.True(t, ok)
@@ -1798,6 +1803,65 @@ func TestOpenAIGatewayServiceForwardImages_OAuthEditsStreamingTransformsEvents(t
 	require.Equal(t, "transparent", gjson.Get(completed.Data, "background").String())
 	require.JSONEq(t, `{"images":1}`, gjson.Get(completed.Data, "usage").Raw)
 	require.False(t, gjson.Get(completed.Data, "revised_prompt").Exists())
+}
+
+func TestResolveOpenAIImageReferenceToDataURL_DownloadsOctetStreamPublicImage(t *testing.T) {
+	remotePNG := []byte("\x89PNG\r\n\x1a\nremote-png-payload")
+	client := req.C().WrapRoundTripFunc(func(_ req.RoundTripper) req.RoundTripFunc {
+		return func(r *req.Request) (*req.Response, error) {
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/octet-stream"}},
+				Body:       io.NopCloser(bytes.NewReader(remotePNG)),
+				Request:    r.RawRequest,
+			}
+			return &req.Response{Response: resp}, nil
+		}
+	})
+
+	got, err := resolveOpenAIImageReferenceToDataURL(context.Background(), client, nil, "https://93.184.216.34/source")
+
+	require.NoError(t, err)
+	require.Equal(t, "data:image/png;base64,"+base64.StdEncoding.EncodeToString(remotePNG), got)
+}
+
+func TestResolveOpenAIImageReferenceToDataURL_BlocksPrivateHosts(t *testing.T) {
+	_, err := resolveOpenAIImageReferenceToDataURL(context.Background(), req.C(), nil, "http://127.0.0.1/source.png")
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "host is not allowed")
+}
+
+func TestDownloadOpenAIImageBytes_RemoteReferenceDoesNotForwardCredentials(t *testing.T) {
+	var gotHeader http.Header
+	client := req.C().WrapRoundTripFunc(func(_ req.RoundTripper) req.RoundTripFunc {
+		return func(r *req.Request) (*req.Response, error) {
+			gotHeader = r.Headers.Clone()
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"image/png"}},
+				Body:       io.NopCloser(bytes.NewReader([]byte("\x89PNG\r\n\x1a\nremote-png-payload"))),
+				Request:    &http.Request{Header: r.Headers.Clone()},
+			}
+			return &req.Response{Response: resp}, nil
+		}
+	})
+	headers := http.Header{
+		"Authorization":       []string{"Bearer upstream-token"},
+		"Cookie":              []string{"session=secret"},
+		"Proxy-Authorization": []string{"Basic proxy-secret"},
+		"X-Api-Key":           []string{"client-secret"},
+		"User-Agent":          []string{"Sub2API-Test"},
+	}
+
+	_, err := downloadOpenAIImageBytes(context.Background(), client, headers, "https://chatgpt.com/source.png", openAIUpstreamErrorBodyReadLimit, false)
+
+	require.NoError(t, err)
+	require.Equal(t, "Sub2API-Test", gotHeader.Get("User-Agent"))
+	require.Empty(t, gotHeader.Get("Authorization"))
+	require.Empty(t, gotHeader.Get("Cookie"))
+	require.Empty(t, gotHeader.Get("Proxy-Authorization"))
+	require.Empty(t, gotHeader.Get("X-Api-Key"))
 }
 
 func TestBuildOpenAIImagesResponsesRequest_PassesThroughNForMultiImageModels(t *testing.T) {

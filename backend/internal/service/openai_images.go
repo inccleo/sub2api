@@ -1314,7 +1314,7 @@ func resolveOpenAIImageBytes(
 		return base64.StdEncoding.DecodeString(normalized)
 	}
 	if downloadURL := strings.TrimSpace(pointer.DownloadURL); downloadURL != "" {
-		return downloadOpenAIImageBytes(ctx, client, headers, downloadURL, errorBodyReadLimit)
+		return downloadOpenAIImageBytes(ctx, client, headers, downloadURL, errorBodyReadLimit, true)
 	}
 	if strings.TrimSpace(pointer.Pointer) == "" {
 		return nil, fmt.Errorf("image asset is missing pointer, url, and base64 data")
@@ -1323,7 +1323,7 @@ func resolveOpenAIImageBytes(
 	if err != nil {
 		return nil, err
 	}
-	return downloadOpenAIImageBytes(ctx, client, headers, downloadURL, errorBodyReadLimit)
+	return downloadOpenAIImageBytes(ctx, client, headers, downloadURL, errorBodyReadLimit, true)
 }
 
 func normalizeOpenAIImageBase64(raw string) string {
@@ -1337,7 +1337,8 @@ func normalizeOpenAIImageBase64(raw string) string {
 		}
 	}
 	raw = strings.TrimSpace(raw)
-	raw = strings.TrimRight(raw, "=") + strings.Repeat("=", (4-len(raw)%4)%4)
+	raw = strings.TrimRight(raw, "=")
+	raw += strings.Repeat("=", (4-len(raw)%4)%4)
 	if raw == "" {
 		return ""
 	}
@@ -1484,12 +1485,19 @@ func fetchOpenAIImageDownloadURL(
 	return "", lastErr
 }
 
-func downloadOpenAIImageBytes(ctx context.Context, client *req.Client, headers http.Header, downloadURL string, errorBodyReadLimit int64) ([]byte, error) {
+func downloadOpenAIImageBytes(
+	ctx context.Context,
+	client *req.Client,
+	headers http.Header,
+	downloadURL string,
+	errorBodyReadLimit int64,
+	allowOpenAIAuthHeaders bool,
+) ([]byte, error) {
 	request := client.R().
 		SetContext(ctx).
 		DisableAutoReadResponse()
 
-	if strings.HasPrefix(downloadURL, openAIChatGPTStartURL) {
+	if allowOpenAIAuthHeaders && strings.HasPrefix(downloadURL, openAIChatGPTStartURL) {
 		downloadHeaders := cloneHTTPHeader(headers)
 		downloadHeaders.Set("Accept", "image/*,*/*;q=0.8")
 		downloadHeaders.Del("Content-Type")

@@ -8,14 +8,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
+	"net/url"
+	"path"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
+	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/gin-gonic/gin"
+	"github.com/imroc/req/v3"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -317,15 +322,161 @@ func openAIImageOutputMIMEType(outputFormat string) string {
 	}
 }
 
+func openAIImageMIMETypeFromName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	if parsed, err := url.Parse(name); err == nil && parsed.Path != "" {
+		name = parsed.Path
+	}
+	mimeType := strings.ToLower(strings.TrimSpace(mime.TypeByExtension(path.Ext(name))))
+	if idx := strings.Index(mimeType, ";"); idx >= 0 {
+		mimeType = strings.TrimSpace(mimeType[:idx])
+	}
+	if mimeType == "image/jpg" {
+		mimeType = "image/jpeg"
+	}
+	return mimeType
+}
+
+func openAIImageDataToDataURL(data []byte, sourceName string, declaredContentType string) (string, error) {
+	if len(data) == 0 {
+		return "", fmt.Errorf("image input %q is empty", strings.TrimSpace(sourceName))
+	}
+	contentType := strings.ToLower(strings.TrimSpace(declaredContentType))
+	if idx := strings.Index(contentType, ";"); idx >= 0 {
+		contentType = strings.TrimSpace(contentType[:idx])
+	}
+	if contentType == "image/jpg" {
+		contentType = "image/jpeg"
+	}
+	detectedType := strings.ToLower(strings.TrimSpace(http.DetectContentType(data)))
+	if !strings.HasPrefix(contentType, "image/") {
+		if strings.HasPrefix(detectedType, "image/") {
+			contentType = detectedType
+		} else if guessedType := openAIImageMIMETypeFromName(sourceName); strings.HasPrefix(guessedType, "image/") {
+			contentType = guessedType
+		}
+	}
+	if !strings.HasPrefix(contentType, "image/") {
+		got := strings.TrimSpace(declaredContentType)
+		if got == "" {
+			got = detectedType
+		}
+		return "", fmt.Errorf("image input %q must be an image MIME type, got %q", strings.TrimSpace(sourceName), got)
+	}
+	return "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(data), nil
+}
+
 func openAIImageUploadToDataURL(upload OpenAIImagesUpload) (string, error) {
-	if len(upload.Data) == 0 {
-		return "", fmt.Errorf("upload %q is empty", strings.TrimSpace(upload.FileName))
+	return openAIImageDataToDataURL(upload.Data, upload.FileName, upload.ContentType)
+}
+
+func openAIImageDataURLToDataURL(raw string) (string, error) {
+	source := strings.TrimSpace(raw)
+	idx := strings.Index(source, ",")
+	if idx < 0 {
+		return "", fmt.Errorf("image data URL is missing base64 payload")
 	}
-	contentType := strings.TrimSpace(upload.ContentType)
-	if contentType == "" {
-		contentType = http.DetectContentType(upload.Data)
+	header := source[:idx]
+	payload := strings.TrimSpace(source[idx+1:])
+	if !strings.Contains(strings.ToLower(header), ";base64") {
+		return "", fmt.Errorf("image data URL must be base64 encoded")
 	}
-	return "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(upload.Data), nil
+	mimeType := strings.TrimPrefix(strings.Split(header, ";")[0], "data:")
+	normalized := normalizeOpenAIImageBase64(payload)
+	if normalized == "" {
+		return "", fmt.Errorf("image data URL has invalid base64 payload")
+	}
+	data, err := base64.StdEncoding.DecodeString(normalized)
+	if err != nil {
+		return "", fmt.Errorf("decode image data URL: %w", err)
+	}
+	return openAIImageDataToDataURL(data, "image_url", mimeType)
+}
+
+func validateOpenAIImageReferenceFetchURL(ctx context.Context, raw string) (string, error) {
+	normalized, err := urlvalidator.ValidateHTTPURL(raw, true, urlvalidator.ValidationOptions{AllowPrivate: false})
+	if err != nil {
+		return "", err
+	}
+	parsed, err := url.Parse(normalized)
+	if err != nil {
+		return "", err
+	}
+	if err := urlvalidator.ValidateResolvedIP(parsed.Hostname()); err != nil {
+		return "", err
+	}
+	return normalized, nil
+}
+
+func openAIImageReferenceRedirectPolicy(ctx context.Context) req.RedirectPolicy {
+	return func(redirectReq *http.Request, via []*http.Request) error {
+		if len(via) >= 5 {
+			return fmt.Errorf("stopped after %d redirects", len(via))
+		}
+		if redirectReq == nil || redirectReq.URL == nil {
+			return fmt.Errorf("redirect url is required")
+		}
+		_, err := validateOpenAIImageReferenceFetchURL(ctx, redirectReq.URL.String())
+		return err
+	}
+}
+
+func resolveOpenAIImageReferenceToDataURL(ctx context.Context, client *req.Client, headers http.Header, imageURL string) (string, error) {
+	trimmed := strings.TrimSpace(imageURL)
+	lower := strings.ToLower(trimmed)
+	switch {
+	case strings.HasPrefix(lower, "data:"):
+		return openAIImageDataURLToDataURL(trimmed)
+	case strings.HasPrefix(lower, "http://"), strings.HasPrefix(lower, "https://"):
+		validatedURL, err := validateOpenAIImageReferenceFetchURL(ctx, trimmed)
+		if err != nil {
+			return "", err
+		}
+		if client == nil {
+			client = req.C().SetTimeout(30 * time.Second)
+		}
+		client.SetRedirectPolicy(openAIImageReferenceRedirectPolicy(ctx))
+		data, err := downloadOpenAIImageBytes(ctx, client, headers, validatedURL, openAIUpstreamErrorBodyReadLimit, false)
+		if err != nil {
+			return "", err
+		}
+		return openAIImageDataToDataURL(data, validatedURL, "")
+	default:
+		return trimmed, nil
+	}
+}
+
+func resolveOpenAIImagesResponsesImageReferences(
+	ctx context.Context,
+	parsed *OpenAIImagesRequest,
+	client *req.Client,
+	headers http.Header,
+) (*OpenAIImagesRequest, error) {
+	if parsed == nil {
+		return nil, fmt.Errorf("parsed images request is required")
+	}
+	resolved := *parsed
+	if len(parsed.InputImageURLs) > 0 {
+		resolved.InputImageURLs = make([]string, 0, len(parsed.InputImageURLs))
+		for _, imageURL := range parsed.InputImageURLs {
+			dataURL, err := resolveOpenAIImageReferenceToDataURL(ctx, client, headers, imageURL)
+			if err != nil {
+				return nil, fmt.Errorf("resolve image_url: %w", err)
+			}
+			resolved.InputImageURLs = append(resolved.InputImageURLs, dataURL)
+		}
+	}
+	if strings.TrimSpace(parsed.MaskImageURL) != "" {
+		dataURL, err := resolveOpenAIImageReferenceToDataURL(ctx, client, headers, parsed.MaskImageURL)
+		if err != nil {
+			return nil, fmt.Errorf("resolve mask image_url: %w", err)
+		}
+		resolved.MaskImageURL = dataURL
+	}
+	return &resolved, nil
 }
 
 func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel string) ([]byte, error) {
@@ -1702,7 +1853,15 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 		return nil, err
 	}
 
-	responsesBody, err := buildOpenAIImagesResponsesRequest(parsed, requestModel)
+	downloadHeaders := http.Header{}
+	if customUA := account.GetOpenAIUserAgent(); customUA != "" {
+		downloadHeaders.Set("User-Agent", customUA)
+	}
+	resolvedParsed, err := resolveOpenAIImagesResponsesImageReferences(upstreamCtx, parsed, req.C().SetTimeout(30*time.Second), downloadHeaders)
+	if err != nil {
+		return nil, err
+	}
+	responsesBody, err := buildOpenAIImagesResponsesRequest(resolvedParsed, requestModel)
 	if err != nil {
 		return nil, err
 	}

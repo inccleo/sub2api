@@ -93,12 +93,12 @@ func (h *ImageWorkbenchHandler) Config(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{
-		"ready":      true,
-		"models":     []string{imageWorkbenchModel},
-		"sizes":      append([]string(nil), imageWorkbenchPresetSizes...),
-		"qualities":  []string{"auto", "low", "medium", "high"},
-		"max_n":      imageWorkbenchMaxN,
-		"max_images": imageWorkbenchMaxImages,
+		"ready":         true,
+		"models":        []string{imageWorkbenchModel},
+		"sizes":         append([]string(nil), imageWorkbenchPresetSizes...),
+		"qualities":     []string{"auto", "low", "medium", "high"},
+		"max_n":         imageWorkbenchMaxN,
+		"max_images":    imageWorkbenchMaxImages,
 		"supports_edit": true,
 	})
 }

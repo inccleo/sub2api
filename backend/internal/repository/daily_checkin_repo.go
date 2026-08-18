@@ -56,6 +56,42 @@ func (r *dailyCheckinRepository) GetUserRole(ctx context.Context, userID int64) 
 	return role, err
 }
 
+func (r *dailyCheckinRepository) HasCompletedPurchase(ctx context.Context, userID int64) (bool, error) {
+	const query = `
+		SELECT EXISTS (
+			SELECT 1
+			FROM payment_orders
+			WHERE user_id = $1 AND status = $2
+		) OR EXISTS (
+			SELECT 1
+			FROM redeem_codes
+			WHERE used_by = $1
+			  AND status = $3
+			  AND type IN ($4, $5, $6)
+		)
+	`
+	queryer, err := r.queryer(ctx)
+	if err != nil {
+		return false, err
+	}
+	var eligible bool
+	err = scanSingleRow(
+		ctx,
+		queryer,
+		query,
+		[]any{
+			userID,
+			service.OrderStatusCompleted,
+			service.StatusUsed,
+			service.RedeemTypeBalance,
+			service.RedeemTypeConcurrency,
+			service.RedeemTypeSubscription,
+		},
+		&eligible,
+	)
+	return eligible, err
+}
+
 func (r *dailyCheckinRepository) GetByDate(ctx context.Context, userID int64, date time.Time) (*service.DailyCheckinRecord, error) {
 	const query = `
 		SELECT user_id, checkin_date, base_reward, bonus_reward, total_reward, streak_count, created_at

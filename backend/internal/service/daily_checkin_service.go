@@ -25,6 +25,7 @@ var (
 	ErrDailyCheckinDisabled    = infraerrors.Forbidden("DAILY_CHECKIN_DISABLED", "daily check-in is disabled")
 	ErrDailyCheckinRole        = infraerrors.Forbidden("DAILY_CHECKIN_ROLE_FORBIDDEN", "only regular users can use daily check-in")
 	ErrDailyCheckinAlreadyDone = infraerrors.Conflict("DAILY_CHECKIN_ALREADY_DONE", "already checked in today")
+	ErrDailyCheckinNotEligible = infraerrors.Forbidden("DAILY_CHECKIN_NOT_ELIGIBLE", "daily check-in is only available after a completed recharge or redeem")
 )
 
 type DailyCheckinRecord struct {
@@ -57,6 +58,7 @@ type DailyCheckinListFilter struct {
 
 type DailyCheckinRepository interface {
 	GetUserRole(ctx context.Context, userID int64) (string, error)
+	HasCompletedPurchase(ctx context.Context, userID int64) (bool, error)
 	GetByDate(ctx context.Context, userID int64, date time.Time) (*DailyCheckinRecord, error)
 	LockUserForCheckin(ctx context.Context, userID int64) error
 	Create(ctx context.Context, record *DailyCheckinRecord) error
@@ -68,6 +70,7 @@ type DailyCheckinRepository interface {
 
 type DailyCheckinStatus struct {
 	Enabled        bool     `json:"enabled"`
+	Eligible       bool     `json:"eligible"`
 	CheckedInToday bool     `json:"checked_in_today"`
 	DailyReward    float64  `json:"daily_reward"`
 	WeeklyBonus    float64  `json:"weekly_bonus"`
@@ -161,12 +164,18 @@ func (s *DailyCheckinService) GetStatus(ctx context.Context, userID int64) (*Dai
 		return nil, err
 	}
 
+	eligible := false
 	role, err := s.repo.GetUserRole(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("get daily check-in user: %w", err)
 	}
 	if role != RoleUser {
 		enabled = false
+	} else if enabled {
+		eligible, err = s.repo.HasCompletedPurchase(ctx, userID)
+		if err != nil {
+			return nil, fmt.Errorf("check daily check-in eligibility: %w", err)
+		}
 	}
 
 	today := timezone.StartOfDay(s.now())
@@ -194,6 +203,7 @@ func (s *DailyCheckinService) GetStatus(ctx context.Context, userID int64) (*Dai
 
 	return &DailyCheckinStatus{
 		Enabled:        enabled,
+		Eligible:       enabled && eligible,
 		CheckedInToday: checkedInToday,
 		DailyReward:    dailyReward,
 		WeeklyBonus:    weeklyBonus,
@@ -288,6 +298,14 @@ func (s *DailyCheckinService) Checkin(ctx context.Context, userID int64) (*Daily
 	}
 	if role != RoleUser {
 		return nil, ErrDailyCheckinRole
+	}
+
+	eligible, err := s.repo.HasCompletedPurchase(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("check daily check-in eligibility: %w", err)
+	}
+	if !eligible {
+		return nil, ErrDailyCheckinNotEligible
 	}
 
 	now := s.now()

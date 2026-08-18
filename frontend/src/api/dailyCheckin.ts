@@ -2,6 +2,7 @@ import { apiClient } from './client'
 
 export interface DailyCheckinStatus {
   enabled: boolean
+  eligible: boolean
   checked_in_today: boolean
   daily_reward: number
   weekly_bonus: number

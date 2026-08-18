@@ -699,6 +699,8 @@ export default {
       completed: '已完成',
       success: '签到成功，已领取 {amount}',
       failed: '签到失败，请稍后重试',
+      notEligible: '完成充值或兑换后即可签到领取奖励',
+      notEligibleAction: '完成充值或兑换后领取',
       loadFailed: '签到状态加载失败',
       historyTitle: '签到记录',
       historyEmpty: '暂无签到记录',

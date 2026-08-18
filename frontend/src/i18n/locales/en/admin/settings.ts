@@ -402,7 +402,7 @@ export default {
         title: 'Daily Check-in',
         description: 'Let users claim balance every day, with an extra reward for each 7-day streak',
         enabled: 'Enable daily check-in',
-        enabledHint: 'Regular users can claim balance from the top navigation bar when enabled',
+        enabledHint: 'When enabled, regular users can see the check-in entry in the top navigation bar; claiming requires a completed recharge or redeem',
         dailyReward: 'Daily base reward (USD)',
         dailyRewardHint: 'Fixed balance credited for each valid daily check-in',
         weeklyBonus: '7-day streak bonus (USD)',

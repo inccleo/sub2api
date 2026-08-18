@@ -59,12 +59,23 @@ vi.mock('@/components/common/BaseDialog.vue', () => ({
 }))
 
 vi.mock('@/utils/apiError', () => ({
-  extractApiErrorMessage: (_error: unknown, fallback: string) => fallback,
+  extractApiErrorMessage: (
+    err: unknown,
+    fallback: string,
+    i18nMap?: Record<string, string>,
+  ) => {
+    if (i18nMap && err && typeof err === 'object' && 'reason' in err) {
+      const reason = String((err as { reason?: unknown }).reason ?? '')
+      if (reason && i18nMap[reason]) return i18nMap[reason]
+    }
+    return fallback
+  },
 }))
 
 function status(overrides: Partial<DailyCheckinStatus> = {}): DailyCheckinStatus {
   return {
     enabled: true,
+    eligible: true,
     checked_in_today: false,
     daily_reward: 0.1,
     weekly_bonus: 0.5,
@@ -143,6 +154,18 @@ describe('DailyCheckinButton', () => {
     expect(mocks.checkin).toHaveBeenCalledTimes(1)
     expect(mocks.showSuccess).toHaveBeenCalledTimes(1)
     expect(mocks.showError).not.toHaveBeenCalled()
+  })
+
+  it('shows the entry but disables claiming when the user is not eligible', async () => {
+    mocks.getStatus.mockResolvedValue(status({ eligible: false }))
+    const wrapper = await mountButton()
+
+    expect(wrapper.find('button').exists()).toBe(true)
+    await openDialog(wrapper)
+
+    expect(wrapper.text()).toContain('profile.dailyCheckin.notEligible')
+    expect(wrapper.get('[data-testid="daily-checkin-action"]').attributes('disabled')).toBeDefined()
+    expect(mocks.checkin).not.toHaveBeenCalled()
   })
 
   it('shows an error and allows retry after the check-in request fails', async () => {

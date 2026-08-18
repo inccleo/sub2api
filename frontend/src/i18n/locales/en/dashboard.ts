@@ -694,6 +694,8 @@ export default {
       completed: 'Completed',
       success: 'Check-in complete. You received {amount}',
       failed: 'Check-in failed. Please try again later',
+      notEligible: 'Check-in is available after you recharge or redeem a code',
+      notEligibleAction: 'Recharge or redeem to claim',
       loadFailed: 'Failed to load check-in status',
       historyTitle: 'Check-in History',
       historyEmpty: 'No check-in records yet',

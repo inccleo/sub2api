@@ -397,7 +397,7 @@ export default {
         title: '每日签到',
         description: '用户每日签到领取余额，连续签到每 7 天可获得一次额外奖励',
         enabled: '开启每日签到',
-        enabledHint: '开启后，普通用户可在顶部栏签到领取余额',
+        enabledHint: '开启后，普通用户可在顶部栏看到签到入口；完成充值或兑换后才能领取奖励',
         dailyReward: '每日基础额度（USD）',
         dailyRewardHint: '每次有效签到固定增加的账户余额',
         weeklyBonus: '连续 7 天额外额度（USD）',

@@ -88,6 +88,27 @@ func TestDailyCheckinServiceRejectsNonUserRole(t *testing.T) {
 	require.Empty(t, repo.records)
 }
 
+func TestDailyCheckinServiceRejectsUsersWithoutPurchase(t *testing.T) {
+	repo := newDailyCheckinTestRepo()
+	repo.hasPurchase = false
+	svc := NewDailyCheckinService(
+		repo,
+		newDailyCheckinTestSettings(true, 0.10, 0.50),
+		nil,
+		nil,
+		nil,
+	)
+
+	_, err := svc.Checkin(context.Background(), 1)
+	require.ErrorIs(t, err, ErrDailyCheckinNotEligible)
+	require.Empty(t, repo.records)
+
+	status, err := svc.GetStatus(context.Background(), 1)
+	require.NoError(t, err)
+	require.True(t, status.Enabled)
+	require.False(t, status.Eligible)
+}
+
 func TestDailyCheckinServiceStatusBeforeAndAfterCheckin(t *testing.T) {
 	repo := newDailyCheckinTestRepo()
 	svc := NewDailyCheckinService(
@@ -103,6 +124,7 @@ func TestDailyCheckinServiceStatusBeforeAndAfterCheckin(t *testing.T) {
 	before, err := svc.GetStatus(context.Background(), 1)
 	require.NoError(t, err)
 	require.True(t, before.Enabled)
+	require.True(t, before.Eligible)
 	require.False(t, before.CheckedInToday)
 	require.Zero(t, before.CurrentStreak)
 	require.Equal(t, 7, before.DaysUntilBonus)
@@ -223,13 +245,17 @@ func TestDailyCheckinServiceHistoryAndAdminList(t *testing.T) {
 }
 
 type dailyCheckinTestRepo struct {
-	records map[string]*DailyCheckinRecord
-	balance float64
-	role    string
+	records     map[string]*DailyCheckinRecord
+	balance     float64
+	role        string
+	hasPurchase bool
 }
 
 func newDailyCheckinTestRepo() *dailyCheckinTestRepo {
-	return &dailyCheckinTestRepo{records: make(map[string]*DailyCheckinRecord)}
+	return &dailyCheckinTestRepo{
+		records:     make(map[string]*DailyCheckinRecord),
+		hasPurchase: true,
+	}
 }
 
 func (r *dailyCheckinTestRepo) GetUserRole(context.Context, int64) (string, error) {
@@ -237,6 +263,10 @@ func (r *dailyCheckinTestRepo) GetUserRole(context.Context, int64) (string, erro
 		return RoleUser, nil
 	}
 	return r.role, nil
+}
+
+func (r *dailyCheckinTestRepo) HasCompletedPurchase(context.Context, int64) (bool, error) {
+	return r.hasPurchase, nil
 }
 
 func (r *dailyCheckinTestRepo) GetByDate(_ context.Context, userID int64, date time.Time) (*DailyCheckinRecord, error) {

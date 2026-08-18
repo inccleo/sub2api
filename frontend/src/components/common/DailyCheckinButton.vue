@@ -18,7 +18,7 @@
       />
       <span class="hidden sm:inline">{{ buttonLabel }}</span>
       <span
-        v-if="!status.checked_in_today"
+        v-if="!status.checked_in_today && status.eligible"
         class="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-amber-500"
       ></span>
     </button>
@@ -121,11 +121,18 @@
           </span>
         </div>
 
+        <p
+          v-if="!status.eligible"
+          class="rounded-lg bg-amber-50 px-3 py-2 text-center text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
+        >
+          {{ t('profile.dailyCheckin.notEligible') }}
+        </p>
+
         <button
           type="button"
           data-testid="daily-checkin-action"
           class="btn btn-primary w-full !py-2 text-sm"
-          :disabled="submitting || status.checked_in_today"
+          :disabled="submitting || status.checked_in_today || !status.eligible"
           @click="performCheckin"
         >
           <span
@@ -134,6 +141,9 @@
           ></span>
           <template v-if="status.checked_in_today">
             {{ t('profile.dailyCheckin.checkedIn') }}
+          </template>
+          <template v-else-if="!status.eligible">
+            {{ t('profile.dailyCheckin.notEligibleAction') }}
           </template>
           <template v-else>
             {{ t('profile.dailyCheckin.action') }}
@@ -236,7 +246,7 @@ const weekdayLabels = computed(() => {
 })
 
 const todayProjected = computed(() => {
-  if (!status.value || status.value.checked_in_today) return null
+  if (!status.value || status.value.checked_in_today || !status.value.eligible) return null
   return projectForDate(todayKey.value)
 })
 
@@ -314,6 +324,7 @@ const buttonLabel = computed(() => {
 
 const buttonTitle = computed(() => {
   if (!status.value) return buttonLabel.value
+  if (!status.value.eligible) return t('profile.dailyCheckin.notEligible')
   return t('profile.dailyCheckin.openHint')
 })
 
@@ -322,7 +333,7 @@ const buttonTitle = computed(() => {
  * Mirrors backend: bonus when streak % 7 === 0.
  */
 function projectForDate(dateKey: string): { streak: number; base: number; bonus: number; total: number } | null {
-  if (!status.value) return null
+  if (!status.value?.eligible) return null
   const today = todayKey.value
   if (dateKey < today) return null
 
@@ -499,7 +510,7 @@ async function openDialog() {
 }
 
 async function performCheckin() {
-  if (!status.value || status.value.checked_in_today || submitting.value) return
+  if (!status.value || !status.value.eligible || status.value.checked_in_today || submitting.value) return
 
   submitting.value = true
   try {
@@ -513,7 +524,9 @@ async function performCheckin() {
     await Promise.allSettled([loadStatus(), loadHistory(), authStore.refreshUser()])
   } catch (error: unknown) {
     appStore.showError(
-      extractApiErrorMessage(error, t('profile.dailyCheckin.failed')),
+      extractApiErrorMessage(error, t('profile.dailyCheckin.failed'), {
+        DAILY_CHECKIN_NOT_ELIGIBLE: t('profile.dailyCheckin.notEligible'),
+      }),
     )
   } finally {
     submitting.value = false

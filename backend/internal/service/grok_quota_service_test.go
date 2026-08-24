@@ -301,22 +301,20 @@ func (u *grokHybridUpstream) snapshot() ([]*http.Request, [][]byte) {
 	return requests, bodies
 }
 
-// grokHybridQuotaProbeCalls drops the fire-and-forget /v1/models sync that
-// QueryQuota schedules after a successful probe. That background request can
-// land before snapshot() and make request-count assertions flake.
-func grokHybridQuotaProbeCalls(requests []*http.Request, bodies [][]byte) ([]*http.Request, [][]byte) {
-	filteredReqs := make([]*http.Request, 0, len(requests))
-	filteredBodies := make([][]byte, 0, len(bodies))
+// quotaSnapshot 返回配额探测链路的请求及请求体，不含 scheduleGrokObservedModelsSync
+// 在 QueryQuota 返回后异步发出的 GET /v1/models：该请求是否已落到上游取决于调度时序。
+func (u *grokHybridUpstream) quotaSnapshot() ([]*http.Request, [][]byte) {
+	requests, bodies := u.snapshot()
+	quotaRequests := make([]*http.Request, 0, len(requests))
+	quotaBodies := make([][]byte, 0, len(bodies))
 	for i, req := range requests {
-		if req != nil && req.URL != nil && req.URL.Path == "/v1/models" {
+		if req.URL.Path == "/v1/models" {
 			continue
 		}
-		filteredReqs = append(filteredReqs, req)
-		if i < len(bodies) {
-			filteredBodies = append(filteredBodies, bodies[i])
-		}
+		quotaRequests = append(quotaRequests, req)
+		quotaBodies = append(quotaBodies, bodies[i])
 	}
-	return filteredReqs, filteredBodies
+	return quotaRequests, quotaBodies
 }
 
 func (r *grokQuotaProxyRepo) GetByID(_ context.Context, id int64) (*Proxy, error) {
@@ -759,7 +757,7 @@ func TestGrokQuotaServiceQueryQuotaFreeFallsBackToGrok45(t *testing.T) {
 	require.EqualValues(t, 2_000_000, *result.Snapshot.Tokens.Limit)
 	require.True(t, result.HeadersObserved)
 
-	requests, bodies := grokHybridQuotaProbeCalls(upstream.snapshot())
+	requests, bodies := upstream.quotaSnapshot()
 	require.Len(t, requests, 3)
 	responseCalls := 0
 	for i, req := range requests {
@@ -799,7 +797,7 @@ func TestGrokQuotaServiceQueryQuotaPaidBillingSkipsActiveProbe(t *testing.T) {
 	require.Empty(t, result.Model)
 	require.Nil(t, result.LocalUsage24h)
 
-	requests, _ := grokHybridQuotaProbeCalls(upstream.snapshot())
+	requests, _ := upstream.quotaSnapshot()
 	require.Len(t, requests, 2)
 	for _, req := range requests {
 		require.Equal(t, "/v1/billing", req.URL.Path)
@@ -824,7 +822,7 @@ func TestGrokQuotaServiceQueryQuotaCustomPaidMonthlyLimitSkipsActiveProbe(t *tes
 	require.InDelta(t, monthlyLimit, *result.Billing.MonthlyLimitCents, 1e-9)
 	require.Nil(t, result.Snapshot)
 
-	requests, _ := grokHybridQuotaProbeCalls(upstream.snapshot())
+	requests, _ := upstream.quotaSnapshot()
 	require.Len(t, requests, 2)
 	for _, req := range requests {
 		require.Equal(t, "/v1/billing", req.URL.Path)
@@ -966,7 +964,7 @@ func TestAccountUsageServiceGrokRefreshUsesBillingOnly(t *testing.T) {
 	require.Len(t, usageRepo.startTimes, 1)
 	require.WithinDuration(t, time.Now().UTC().Add(-24*time.Hour), usageRepo.startTimes[0], time.Second)
 
-	requests, _ := grokHybridQuotaProbeCalls(upstream.snapshot())
+	requests, _ := upstream.snapshot()
 	require.Len(t, requests, 2)
 	for _, req := range requests {
 		require.Equal(t, http.MethodGet, req.Method)

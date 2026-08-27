@@ -10,6 +10,7 @@ export interface ImageWorkbenchConfig {
   max_n?: number
   max_images?: number
   supports_edit?: boolean
+  supports_transparent_background?: boolean
 }
 
 export interface ImageWorkbenchTask {
@@ -30,6 +31,7 @@ export interface SubmitImageWorkbenchTask {
   prompt: string
   size: string
   quality: string
+  background?: 'transparent'
   n?: number
   /** Reference images: presence switches the workbench to image edit mode. */
   images?: File[]
@@ -47,6 +49,7 @@ export async function submitImageWorkbenchTask(payload: SubmitImageWorkbenchTask
     form.append('prompt', payload.prompt)
     form.append('size', payload.size)
     form.append('quality', payload.quality)
+    if (payload.background) form.append('background', payload.background)
     form.append('n', String(payload.n && payload.n > 0 ? payload.n : 1))
     for (const file of images) {
       form.append('image', file, file.name || 'reference.png')
@@ -71,6 +74,7 @@ export async function submitImageWorkbenchTask(payload: SubmitImageWorkbenchTask
     prompt: payload.prompt,
     size: payload.size,
     quality: payload.quality,
+    ...(payload.background ? { background: payload.background } : {}),
     n: payload.n,
   })
   return response.data

@@ -11,16 +11,27 @@ describe('image workbench api', () => {
   it('submits without exposing an API key', async () => {
     post.mockResolvedValue({ data: { id: 'imgtask_1', status: 'processing' } })
     const { submitImageWorkbenchTask } = await import('../imageWorkbench')
-    const payload = { prompt: 'city', size: '1920x1088', quality: 'high', n: 3 }
+    const payload = { prompt: 'city', size: '1920x1088', quality: 'high', background: 'transparent' as const, n: 3 }
 
     await expect(submitImageWorkbenchTask(payload)).resolves.toMatchObject({ id: 'imgtask_1' })
     expect(post).toHaveBeenCalledWith('/image-workbench/tasks', {
       prompt: 'city',
       size: '1920x1088',
       quality: 'high',
+      background: 'transparent',
       n: 3,
     })
     expect(JSON.stringify(post.mock.calls)).not.toContain('api_key')
+  })
+
+  it('omits the background field when transparency is off', async () => {
+    post.mockResolvedValue({ data: { id: 'imgtask_opaque', status: 'processing' } })
+    const { submitImageWorkbenchTask } = await import('../imageWorkbench')
+
+    await submitImageWorkbenchTask({ prompt: 'city', size: '1024x1024', quality: 'auto' })
+
+    const body = post.mock.calls[0][1] as Record<string, unknown>
+    expect(body).not.toHaveProperty('background')
   })
 
   it('submits edits as multipart when reference images are present', async () => {
@@ -32,6 +43,7 @@ describe('image workbench api', () => {
       prompt: 'make blue',
       size: '1024x1024',
       quality: 'auto',
+      background: 'transparent',
       n: 2,
       images: [file],
     })
@@ -42,6 +54,7 @@ describe('image workbench api', () => {
     expect(body).toBeInstanceOf(FormData)
     expect((body as FormData).get('prompt')).toBe('make blue')
     expect((body as FormData).get('n')).toBe('2')
+    expect((body as FormData).get('background')).toBe('transparent')
     expect((body as FormData).get('image')).toBeInstanceOf(File)
     expect(config?.timeout).toBe(120000)
   })

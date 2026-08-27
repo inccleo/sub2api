@@ -121,7 +121,13 @@
                 </div>
 
                 <div>
-                  <span class="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">{{ t('imageWorkbench.customSize') }}</span>
+                  <div class="mb-1 flex items-center justify-between gap-2">
+                    <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ t('imageWorkbench.customSize') }}</span>
+                    <div class="flex items-center gap-1.5" :title="t('imageWorkbench.align16Hint')">
+                      <span class="text-[10px] text-gray-500 dark:text-gray-400">{{ t('imageWorkbench.align16') }}</span>
+                      <Toggle v-model="alignTo16" />
+                    </div>
+                  </div>
                   <div class="grid grid-cols-[1fr_auto_1fr] items-center gap-1">
                     <label class="flex items-center gap-1 rounded-md bg-gray-100 px-2 py-1 text-xs dark:bg-dark-900">
                       <span class="text-gray-500">{{ t('imageWorkbench.width') }}</span>
@@ -151,6 +157,14 @@
                       />
                     </label>
                   </div>
+                </div>
+
+                <div class="flex items-center justify-between gap-3">
+                  <div class="min-w-0">
+                    <span class="block text-xs font-medium text-gray-700 dark:text-gray-300">{{ t('imageWorkbench.transparentBackground') }}</span>
+                    <p class="mt-0.5 text-[10px] leading-4 text-gray-400">{{ t('imageWorkbench.transparentBackgroundHint') }}</p>
+                  </div>
+                  <Toggle v-model="transparentBackground" />
                 </div>
 
                 <div>
@@ -451,6 +465,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
+import Toggle from '@/components/common/Toggle.vue'
 import {
   collectImageWorkbenchURLs,
   getImageWorkbenchConfig,
@@ -465,6 +480,7 @@ interface HistoryRecord {
   prompt: string
   size: string
   quality: string
+  background?: string
   n: number
   task: ImageWorkbenchTask
 }
@@ -500,6 +516,8 @@ const quality = ref('auto')
 const count = ref(1)
 const customWidth = ref('1024')
 const customHeight = ref('1024')
+const alignTo16 = ref(true)
+const transparentBackground = ref(false)
 const settingsOpen = ref(true)
 const history = ref<HistoryRecord[]>([])
 const activeTaskId = ref('')
@@ -516,10 +534,15 @@ const aspectOptions: AspectOption[] = [
   { value: '1024x1024', label: '1:1', width: '1024', height: '1024', shape: 'h-4 w-4' },
   { value: '1024x1536', label: '2:3', width: '1024', height: '1536', shape: 'h-5 w-3.5' },
   { value: '1536x1024', label: '3:2', width: '1536', height: '1024', shape: 'h-3.5 w-5' },
-  { value: '1024x1365', label: '3:4', width: '1024', height: '1365', shape: 'h-5 w-3.5' },
-  { value: '1365x1024', label: '4:3', width: '1365', height: '1024', shape: 'h-3.5 w-5' },
+  { value: '1024x1360', label: '3:4', width: '1024', height: '1360', shape: 'h-5 w-3.5' },
+  { value: '1360x1024', label: '4:3', width: '1360', height: '1024', shape: 'h-3.5 w-5' },
   { value: '1088x1920', label: '9:16', width: '1088', height: '1920', shape: 'h-5 w-3' },
   { value: '1920x1088', label: '16:9', width: '1920', height: '1088', shape: 'h-3 w-5' },
+  { value: '2048x2048', label: '1:1 2K', width: '2048', height: '2048', shape: 'h-4 w-4' },
+  { value: '2560x1440', label: '16:9 2K', width: '2560', height: '1440', shape: 'h-3 w-5' },
+  { value: '1440x2560', label: '9:16 2K', width: '1440', height: '2560', shape: 'h-5 w-3' },
+  { value: '3840x2160', label: '16:9 4K', width: '3840', height: '2160', shape: 'h-3 w-5' },
+  { value: '2160x3840', label: '9:16 4K', width: '2160', height: '3840', shape: 'h-5 w-3' },
   { value: 'auto', label: 'auto', width: '1024', height: '1024' },
 ]
 const qualityOptions = ['auto', 'low', 'medium', 'high'] as const
@@ -536,7 +559,8 @@ const settingsSummary = computed(() => {
   const qualityLabel = t(`imageWorkbench.qualityLabels.${quality.value}` as 'imageWorkbench.qualityLabels.auto')
   const sizeLabel = size.value === 'auto' ? 'auto' : size.value
   const base = t('imageWorkbench.settingsSummary', { quality: qualityLabel, size: sizeLabel, count: count.value })
-  return isEditMode.value ? `${base} · edit` : base
+  const mode = isEditMode.value ? `${base} · edit` : base
+  return transparentBackground.value ? `${mode} · ${t('imageWorkbench.transparentBackground')}` : mode
 })
 const resultGridClass = computed(() => {
   const n = resultImages.value.length
@@ -659,9 +683,16 @@ function applyCustomSize() {
   if (!Number.isFinite(w) || !Number.isFinite(h) || w < MIN_DIM || h < MIN_DIM || w > MAX_DIM || h > MAX_DIM) {
     return
   }
-  size.value = `${Math.round(w)}x${Math.round(h)}`
-  customWidth.value = String(Math.round(w))
-  customHeight.value = String(Math.round(h))
+  const nextWidth = alignImageDimension(w)
+  const nextHeight = alignImageDimension(h)
+  size.value = `${nextWidth}x${nextHeight}`
+  customWidth.value = String(nextWidth)
+  customHeight.value = String(nextHeight)
+}
+
+function alignImageDimension(value: number): number {
+  const integer = Math.floor(value)
+  return alignTo16.value ? Math.ceil(integer / 16) * 16 : integer
 }
 
 function clampCount(value: number): number {
@@ -691,6 +722,7 @@ function restore() {
     prompt.value = latest.prompt
     size.value = latest.size
     quality.value = latest.quality
+    transparentBackground.value = latest.background === 'transparent'
     count.value = latest.n || 1
     syncCustomFromSize(latest.size)
   }
@@ -737,6 +769,7 @@ async function generate() {
       prompt: prompt.value.trim(),
       size: size.value,
       quality: quality.value,
+      background: transparentBackground.value ? 'transparent' : undefined,
       n,
       images: referenceImages.value.map((item) => item.file),
     })
@@ -745,6 +778,7 @@ async function generate() {
       prompt: prompt.value.trim(),
       size: size.value,
       quality: quality.value,
+      background: transparentBackground.value ? 'transparent' : undefined,
       n,
       task,
     }
@@ -789,6 +823,7 @@ function selectRecord(record: HistoryRecord) {
   prompt.value = record.prompt
   size.value = record.size
   quality.value = record.quality
+  transparentBackground.value = record.background === 'transparent'
   count.value = record.n || 1
   syncCustomFromSize(record.size)
   closeLightbox()

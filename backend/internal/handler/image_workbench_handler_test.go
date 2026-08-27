@@ -75,7 +75,7 @@ func TestImageWorkbenchSubmitUsesManagedKeyAndForcesPayload(t *testing.T) {
 	})
 	router.POST("/api/v1/image-workbench/tasks", h.Submit)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/image-workbench/tasks", strings.NewReader(`{"prompt":"  neon city  ","size":"1536x1024","quality":"high","model":"other","n":8}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/image-workbench/tasks", strings.NewReader(`{"prompt":"  neon city  ","size":"1536x1024","quality":"high","background":"transparent","model":"other","n":8}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer jwt-user-token")
 	w := httptest.NewRecorder()
@@ -88,6 +88,7 @@ func TestImageWorkbenchSubmitUsesManagedKeyAndForcesPayload(t *testing.T) {
 	require.Equal(t, "neon city", gotPayload["prompt"])
 	require.Equal(t, "1536x1024", gotPayload["size"])
 	require.Equal(t, "high", gotPayload["quality"])
+	require.Equal(t, "transparent", gotPayload["background"])
 	// Client-supplied n is accepted (clamped 1..max); older clients that omit n still get 1.
 	require.Equal(t, float64(8), gotPayload["n"])
 }
@@ -113,14 +114,26 @@ func TestImageWorkbenchSubmitAcceptsChatGPT2APIStyleSizeAndDefaultN(t *testing.T
 	})
 	router.POST("/api/v1/image-workbench/tasks", h.Submit)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/image-workbench/tasks", strings.NewReader(`{"prompt":"sky","size":"1920x1088","quality":"medium"}`))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
+	for _, size := range []string{
+		"1920x1088",
+		"2048x2048",
+		"2560x1440",
+		"1440x2560",
+		"3840x2160",
+		"2160x3840",
+	} {
+		t.Run(size, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/image-workbench/tasks", strings.NewReader(`{"prompt":"sky","size":"`+size+`","quality":"medium"}`))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
 
-	require.Equal(t, http.StatusAccepted, w.Code)
-	require.Equal(t, "1920x1088", gotPayload["size"])
-	require.Equal(t, float64(1), gotPayload["n"])
+			require.Equal(t, http.StatusAccepted, w.Code)
+			require.Equal(t, size, gotPayload["size"])
+			require.Equal(t, float64(1), gotPayload["n"])
+			require.NotContains(t, gotPayload, "background")
+		})
+	}
 }
 
 func TestImageWorkbenchSubmitReturnsJWTWorkbenchPollURL(t *testing.T) {
@@ -173,6 +186,14 @@ func TestImageWorkbenchSubmitRejectsUnsupportedControls(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Contains(t, w.Body.String(), "Unsupported image quality")
 
+	// Only the transparent opt-in is accepted by the hosted workbench.
+	req = httptest.NewRequest(http.MethodPost, "/tasks", strings.NewReader(`{"prompt":"cat","size":"1024x1024","quality":"auto","background":"opaque"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Contains(t, w.Body.String(), "Unsupported image background")
+
 	// n above max is rejected.
 	req = httptest.NewRequest(http.MethodPost, "/tasks", strings.NewReader(`{"prompt":"cat","size":"1024x1024","quality":"auto","n":99}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -212,6 +233,7 @@ func TestImageWorkbenchSubmitEditRoutesToEditsAsync(t *testing.T) {
 	require.NoError(t, writer.WriteField("prompt", " make it blue "))
 	require.NoError(t, writer.WriteField("size", "1024x1024"))
 	require.NoError(t, writer.WriteField("quality", "high"))
+	require.NoError(t, writer.WriteField("background", "transparent"))
 	require.NoError(t, writer.WriteField("n", "2"))
 	part, err := writer.CreateFormFile("image", "ref.png")
 	require.NoError(t, err)
@@ -256,6 +278,7 @@ func TestImageWorkbenchSubmitEditRoutesToEditsAsync(t *testing.T) {
 	require.Equal(t, "make it blue", fields["prompt"])
 	require.Equal(t, "1024x1024", fields["size"])
 	require.Equal(t, "high", fields["quality"])
+	require.Equal(t, "transparent", fields["background"])
 	require.Equal(t, "2", fields["n"])
 }
 

@@ -29,16 +29,20 @@ const (
 	imageWorkbenchMaxImageBytes  = 20 << 20
 )
 
-// imageWorkbenchPresetSizes mirrors chatgpt2api's 1K aspect presets + official OpenAI sizes.
-// 2K/4K codex-only presets are intentionally omitted (workbench model is gpt-image-2).
+// imageWorkbenchPresetSizes mirrors the presets exposed by chatgpt2api's image composer.
 var imageWorkbenchPresetSizes = []string{
 	"1024x1024", // 1:1
 	"1024x1536", // 2:3
 	"1536x1024", // 3:2
-	"1024x1365", // 3:4
-	"1365x1024", // 4:3
+	"1024x1360", // 3:4
+	"1360x1024", // 4:3
 	"1088x1920", // 9:16
 	"1920x1088", // 16:9
+	"2048x2048", // 1:1 2K
+	"2560x1440", // 16:9 2K
+	"1440x2560", // 9:16 2K
+	"3840x2160", // 16:9 4K
+	"2160x3840", // 9:16 4K
 	"auto",
 }
 
@@ -55,10 +59,11 @@ type imageWorkbenchAPIKeyProvider interface {
 }
 
 type imageWorkbenchSubmitRequest struct {
-	Prompt  string `json:"prompt"`
-	Size    string `json:"size"`
-	Quality string `json:"quality"`
-	N       int    `json:"n"`
+	Prompt     string `json:"prompt"`
+	Size       string `json:"size"`
+	Quality    string `json:"quality"`
+	Background string `json:"background"`
+	N          int    `json:"n"`
 }
 
 type imageWorkbenchUpload struct {
@@ -93,13 +98,14 @@ func (h *ImageWorkbenchHandler) Config(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{
-		"ready":         true,
-		"models":        []string{imageWorkbenchModel},
-		"sizes":         append([]string(nil), imageWorkbenchPresetSizes...),
-		"qualities":     []string{"auto", "low", "medium", "high"},
-		"max_n":         imageWorkbenchMaxN,
-		"max_images":    imageWorkbenchMaxImages,
-		"supports_edit": true,
+		"ready":                           true,
+		"models":                          []string{imageWorkbenchModel},
+		"sizes":                           append([]string(nil), imageWorkbenchPresetSizes...),
+		"qualities":                       []string{"auto", "low", "medium", "high"},
+		"max_n":                           imageWorkbenchMaxN,
+		"max_images":                      imageWorkbenchMaxImages,
+		"supports_edit":                   true,
+		"supports_transparent_background": true,
 	})
 }
 
@@ -120,17 +126,21 @@ func (h *ImageWorkbenchHandler) submitGenerate(c *gin.Context) {
 		response.BadRequest(c, "Invalid image generation request")
 		return
 	}
-	prompt, size, quality, n, ok := normalizeImageWorkbenchControls(c, input.Prompt, input.Size, input.Quality, input.N)
+	prompt, size, quality, background, n, ok := normalizeImageWorkbenchControls(c, input.Prompt, input.Size, input.Quality, input.Background, input.N)
 	if !ok {
 		return
 	}
-	payload, err := json.Marshal(gin.H{
+	requestPayload := gin.H{
 		"model":   imageWorkbenchModel,
 		"prompt":  prompt,
 		"size":    size,
 		"quality": quality,
 		"n":       n,
-	})
+	}
+	if background != "" {
+		requestPayload["background"] = background
+	}
+	payload, err := json.Marshal(requestPayload)
 	if err != nil {
 		response.InternalError(c, "Failed to prepare image generation request")
 		return
@@ -156,6 +166,7 @@ func (h *ImageWorkbenchHandler) submitEdit(c *gin.Context) {
 	prompt := firstFormValue(form, "prompt")
 	size := firstFormValue(form, "size")
 	quality := firstFormValue(form, "quality")
+	background := firstFormValue(form, "background")
 	n := 1
 	if rawN := firstFormValue(form, "n"); rawN != "" {
 		parsed, err := strconv.Atoi(rawN)
@@ -165,7 +176,7 @@ func (h *ImageWorkbenchHandler) submitEdit(c *gin.Context) {
 		}
 		n = parsed
 	}
-	prompt, size, quality, n, ok := normalizeImageWorkbenchControls(c, prompt, size, quality, n)
+	prompt, size, quality, background, n, ok := normalizeImageWorkbenchControls(c, prompt, size, quality, background, n)
 	if !ok {
 		return
 	}
@@ -184,7 +195,7 @@ func (h *ImageWorkbenchHandler) submitEdit(c *gin.Context) {
 		return
 	}
 
-	body, contentType, err := buildImageWorkbenchEditMultipart(prompt, size, quality, n, uploads)
+	body, contentType, err := buildImageWorkbenchEditMultipart(prompt, size, quality, background, n, uploads)
 	if err != nil {
 		response.InternalError(c, "Failed to prepare image edit request")
 		return
@@ -230,15 +241,15 @@ func (h *ImageWorkbenchHandler) withManagedKey(c *gin.Context, gatewayPath strin
 	next(c)
 }
 
-func normalizeImageWorkbenchControls(c *gin.Context, prompt, size, quality string, n int) (string, string, string, int, bool) {
+func normalizeImageWorkbenchControls(c *gin.Context, prompt, size, quality, background string, n int) (string, string, string, string, int, bool) {
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
 		response.BadRequest(c, "Prompt is required")
-		return "", "", "", 0, false
+		return "", "", "", "", 0, false
 	}
 	if len(prompt) > 32000 {
 		response.BadRequest(c, "Prompt is too long")
-		return "", "", "", 0, false
+		return "", "", "", "", 0, false
 	}
 	size = strings.TrimSpace(size)
 	if size == "" {
@@ -246,7 +257,7 @@ func normalizeImageWorkbenchControls(c *gin.Context, prompt, size, quality strin
 	}
 	if !validImageWorkbenchSize(size) {
 		response.BadRequest(c, "Unsupported image size")
-		return "", "", "", 0, false
+		return "", "", "", "", 0, false
 	}
 	quality = strings.TrimSpace(quality)
 	if quality == "" {
@@ -254,16 +265,21 @@ func normalizeImageWorkbenchControls(c *gin.Context, prompt, size, quality strin
 	}
 	if !allowedImageWorkbenchValue(quality, "auto", "low", "medium", "high") {
 		response.BadRequest(c, "Unsupported image quality")
-		return "", "", "", 0, false
+		return "", "", "", "", 0, false
+	}
+	background = strings.ToLower(strings.TrimSpace(background))
+	if background != "" && background != "transparent" {
+		response.BadRequest(c, "Unsupported image background")
+		return "", "", "", "", 0, false
 	}
 	if n <= 0 {
 		n = 1
 	}
 	if n > imageWorkbenchMaxN {
 		response.BadRequest(c, "Unsupported image count")
-		return "", "", "", 0, false
+		return "", "", "", "", 0, false
 	}
-	return prompt, size, quality, n, true
+	return prompt, size, quality, background, n, true
 }
 
 func firstFormValue(form *multipart.Form, key string) string {
@@ -345,7 +361,7 @@ func isAllowedImageWorkbenchUploadType(contentType, fileName string) bool {
 	return false
 }
 
-func buildImageWorkbenchEditMultipart(prompt, size, quality string, n int, uploads []imageWorkbenchUpload) ([]byte, string, error) {
+func buildImageWorkbenchEditMultipart(prompt, size, quality, background string, n int, uploads []imageWorkbenchUpload) ([]byte, string, error) {
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 	fields := map[string]string{
@@ -354,6 +370,9 @@ func buildImageWorkbenchEditMultipart(prompt, size, quality string, n int, uploa
 		"size":    size,
 		"quality": quality,
 		"n":       strconv.Itoa(n),
+	}
+	if background != "" {
+		fields["background"] = background
 	}
 	for key, value := range fields {
 		if err := writer.WriteField(key, value); err != nil {

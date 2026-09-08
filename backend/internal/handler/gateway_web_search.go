@@ -76,6 +76,9 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 		}})
 		return
 	}
+	if !middleware2.EnforceEffectiveGroupModelAllowlist(c, searchModel) {
+		return
+	}
 
 	// Billing eligibility (same as other requests)
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)

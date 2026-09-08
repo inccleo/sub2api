@@ -31,6 +31,13 @@ func (h *OpenAIGatewayHandler) GrokRealtime(c *gin.Context) {
 		h.errorResponse(c, http.StatusNotFound, "not_found_error", "Realtime API is not supported for this platform")
 		return
 	}
+	model := strings.TrimSpace(c.Query("model"))
+	if model == "" {
+		model = "grok-voice-latest"
+	}
+	if !middleware2.EnforceEffectiveGroupModelAllowlist(c, model) {
+		return
+	}
 	if !h.ensureResponsesDependencies(c, nil) {
 		return
 	}
@@ -45,10 +52,6 @@ func (h *OpenAIGatewayHandler) GrokRealtime(c *gin.Context) {
 	}
 
 	reqLog := requestLogger(c, "handler.openai_gateway.grok_realtime")
-	model := c.Query("model")
-	if strings.TrimSpace(model) == "" {
-		model = "grok-voice-latest"
-	}
 	// Keep the HTTP response uncommitted while selecting and probing an account.
 	// Realtime is not an HTTP streaming response; using reqStream=true here would
 	// let the wait queue flush an SSE ping before the WebSocket handshake succeeds.

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -101,6 +102,26 @@ func TestGatewayRoutesGroupModelAllowlistMountedOnEveryGatewayRoute(t *testing.T
 	stray := regexp.MustCompile(`\br\.(GET|POST|PUT|PATCH|DELETE)\("[^"]+",[^(]*apiKeyAuth`)
 	require.NotRegexp(t, stray, source,
 		"root alias routes must use rootRoute so the allowlist cannot be forgotten")
+}
+
+func TestGatewayDefaultModelHandlersEnforceEffectiveAllowlist(t *testing.T) {
+	cases := []struct {
+		file     string
+		contract string
+	}{
+		{file: "openai_images.go", contract: "EnforceEffectiveGroupModelAllowlist(c, requestModel)"},
+		{file: "image_task_handler.go", contract: "EnforceEffectiveGroupModelAllowlist(c, model)"},
+		{file: "grok_audio.go", contract: "EnforceEffectiveGroupModelAllowlist(c, model)"},
+		{file: "gateway_web_search.go", contract: "EnforceEffectiveGroupModelAllowlist(c, searchModel)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.file, func(t *testing.T) {
+			source, err := os.ReadFile(filepath.Join("..", "..", "handler", tc.file))
+			require.NoError(t, err)
+			require.Contains(t, string(source), tc.contract,
+				"model-optional handler must validate its effective model before dispatch")
+		})
+	}
 }
 
 // TestGatewayRoutesGroupModelAllowlistBlocksCompositeModelBeforeRewrite asserts

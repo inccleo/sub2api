@@ -89,6 +89,27 @@ func GroupModelAllowlist() gin.HandlerFunc {
 	}
 }
 
+// EnforceEffectiveGroupModelAllowlist validates a model after a handler has
+// applied endpoint defaults. The request middleware cannot infer runtime
+// defaults for model-optional endpoints, so those handlers must call this
+// before scheduling or contacting an upstream.
+func EnforceEffectiveGroupModelAllowlist(c *gin.Context, model string) bool {
+	apiKey, ok := GetAPIKeyFromContext(c)
+	if !ok || apiKey == nil || apiKey.Group == nil || !apiKey.Group.ModelAllowlistEnabled() {
+		return true
+	}
+	model = strings.TrimSpace(model)
+	if model == "" || apiKey.Group.ModelAllowlist.Allows(model) {
+		return true
+	}
+
+	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
+	MarkIngressRejected(c, IngressRejectModelNotAllowed)
+	groupModelAllowlistErrorWriter(c)(c, http.StatusNotFound, fmt.Sprintf("Model %q is not available for this group", model))
+	c.Abort()
+	return false
+}
+
 // isResponsesWebSocketRoute 判断当前请求是否命中 OpenAI Responses WebSocket
 // 入口。只有这三条路由的模型在升级后的帧里，交给 handler 逐帧校验；其他路由
 // 即使携带 WebSocket Upgrade 头也必须经过本中间件校验。

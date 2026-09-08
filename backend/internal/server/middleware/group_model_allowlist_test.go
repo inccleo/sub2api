@@ -293,6 +293,48 @@ func TestGroupModelAllowlistNoModelPassesThrough(t *testing.T) {
 	}
 }
 
+func TestEnforceEffectiveGroupModelAllowlistChecksHandlerDefault(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(ContextKeyAPIKey), allowlistAPIKey(true, "gpt-image-1"))
+		c.Next()
+	})
+	router.POST("/v1/images/generations", func(c *gin.Context) {
+		if !EnforceEffectiveGroupModelAllowlist(c, "gpt-image-2") {
+			return
+		}
+		c.Status(http.StatusOK)
+	})
+
+	w := doJSON(t, router, http.MethodPost, "/v1/images/generations", `{"prompt":"cat"}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for a disallowed default model, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "gpt-image-2") {
+		t.Fatalf("expected effective model in response, got %s", w.Body.String())
+	}
+}
+
+func TestEnforceEffectiveGroupModelAllowlistAllowsHandlerDefault(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(ContextKeyAPIKey), allowlistAPIKey(true, "gpt-image-*"))
+		c.Next()
+	})
+	router.POST("/v1/images/generations", func(c *gin.Context) {
+		if EnforceEffectiveGroupModelAllowlist(c, "gpt-image-2") {
+			c.Status(http.StatusOK)
+		}
+	})
+
+	w := doJSON(t, router, http.MethodPost, "/v1/images/generations", `{"prompt":"cat"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected allowed default model to proceed, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestGroupModelAllowlistBodyRestoredForHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

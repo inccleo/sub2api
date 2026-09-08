@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	appmigrations "github.com/Wei-Shaw/sub2api/migrations"
 	"github.com/stretchr/testify/require"
 )
 
@@ -74,6 +75,8 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	requireColumn(t, tx, "groups", "allow_live", "boolean", 0, false)
 	requireColumn(t, tx, "groups", "force_openai_fast", "boolean", 0, false)
 	requireColumn(t, tx, "groups", "free_openai_fast", "boolean", 0, false)
+	requireColumn(t, tx, "groups", "models_list_config", "jsonb", 0, false)
+	requireColumn(t, tx, "groups", "model_allowlist", "jsonb", 0, false)
 
 	// api_keys: key length should be 128
 	requireColumn(t, tx, "api_keys", "key", "character varying", 128, false)
@@ -197,6 +200,86 @@ WHERE ns.nspname = 'public'
 
 	// user_allowed_groups: created_at should be timestamptz
 	requireColumn(t, tx, "user_allowed_groups", "created_at", "timestamp with time zone", 0, false)
+}
+
+func TestGroupModelAllowlistRollbackCompatibility(t *testing.T) {
+	tx := testTx(t)
+	ctx := context.Background()
+	var id int64
+	require.NoError(t, tx.QueryRowContext(ctx, `
+INSERT INTO groups (name, platform, rate_multiplier, status, subscription_type, model_allowlist)
+VALUES ('allowlist-compat-test', 'openai', 1, 'active', 'standard', '{"enabled":true,"models":["new-model"]}'::jsonb)
+RETURNING id
+`).Scan(&id))
+
+	var legacy, current string
+	require.NoError(t, tx.QueryRowContext(ctx,
+		"SELECT models_list_config::text, model_allowlist::text FROM groups WHERE id = $1", id,
+	).Scan(&legacy, &current))
+	require.JSONEq(t, current, legacy, "new-binary insert must remain readable by the rollback binary")
+
+	_, err := tx.ExecContext(ctx,
+		`UPDATE groups SET models_list_config = '{"enabled":true,"models":["legacy-model"]}'::jsonb WHERE id = $1`, id)
+	require.NoError(t, err)
+	require.NoError(t, tx.QueryRowContext(ctx,
+		"SELECT models_list_config::text, model_allowlist::text FROM groups WHERE id = $1", id,
+	).Scan(&legacy, &current))
+	require.JSONEq(t, legacy, current, "legacy-binary update must be visible to the new binary")
+
+	_, err = tx.ExecContext(ctx,
+		`UPDATE groups SET model_allowlist = '{"enabled":true,"models":["newer-model"]}'::jsonb WHERE id = $1`, id)
+	require.NoError(t, err)
+	require.NoError(t, tx.QueryRowContext(ctx,
+		"SELECT models_list_config::text, model_allowlist::text FROM groups WHERE id = $1", id,
+	).Scan(&legacy, &current))
+	require.JSONEq(t, current, legacy, "new-binary update must be visible to the rollback binary")
+
+	_, err = tx.ExecContext(ctx, `UPDATE groups SET
+		models_list_config = '{"enabled":true,"models":["legacy"]}'::jsonb,
+		model_allowlist = '{"enabled":true,"models":["current"]}'::jsonb
+		WHERE id = $1`, id)
+	require.ErrorContains(t, err, "conflicting models_list_config and model_allowlist values")
+}
+
+func TestGroupModelAllowlistMigrationCopiesExistingLegacyData(t *testing.T) {
+	tx := testTx(t)
+	ctx := context.Background()
+
+	_, err := tx.ExecContext(ctx, "ALTER TABLE groups RENAME TO groups_before_allowlist_compat_test")
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, `
+CREATE TABLE groups (
+    id BIGINT NOT NULL,
+    models_list_config JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+INSERT INTO groups (id, models_list_config)
+VALUES (1, '{"enabled":true,"models":["legacy-model"]}'::jsonb);
+`)
+	require.NoError(t, err)
+
+	upstreamMigration, err := appmigrations.FS.ReadFile("235_group_model_allowlist.sql")
+	require.NoError(t, err)
+	compatMigration, err := appmigrations.FS.ReadFile("235a_group_model_allowlist_rollback_compat.sql")
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, string(upstreamMigration))
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, string(compatMigration))
+	require.NoError(t, err)
+
+	var legacy, current string
+	require.NoError(t, tx.QueryRowContext(ctx,
+		"SELECT models_list_config::text, model_allowlist::text FROM groups WHERE id = 1",
+	).Scan(&legacy, &current))
+	require.JSONEq(t, `{"enabled":true,"models":["legacy-model"]}`, legacy)
+	require.JSONEq(t, legacy, current, "235a must copy rows renamed by the upstream 235 migration")
+
+	_, err = tx.ExecContext(ctx,
+		`UPDATE groups SET model_allowlist = '{"enabled":true,"models":["new-model"]}'::jsonb WHERE id = 1`)
+	require.NoError(t, err)
+	require.NoError(t, tx.QueryRowContext(ctx,
+		"SELECT models_list_config::text, model_allowlist::text FROM groups WHERE id = 1",
+	).Scan(&legacy, &current))
+	require.JSONEq(t, current, legacy)
 }
 
 func TestMigrationsRunner_AuthIdentityAndPaymentSchemaStayAligned(t *testing.T) {

@@ -20,7 +20,8 @@ func TestMigration236RenamesLegacyModelsListConfigColumn(t *testing.T) {
 	tx := testTx(t)
 	ctx := context.Background()
 
-	_, err := tx.ExecContext(ctx, "ALTER TABLE groups RENAME COLUMN model_allowlist TO models_list_config")
+	dropGroupModelAllowlistCompatibilityTriggers(ctx, t, tx)
+	_, err := tx.ExecContext(ctx, "ALTER TABLE groups DROP COLUMN model_allowlist")
 	require.NoError(t, err)
 
 	var groupID int64
@@ -50,9 +51,10 @@ func TestMigration236BackfillsWhenBothColumnsExist(t *testing.T) {
 	tx := testTx(t)
 	ctx := context.Background()
 
-	_, err := tx.ExecContext(ctx,
-		"ALTER TABLE groups ADD COLUMN models_list_config JSONB NOT NULL DEFAULT '{}'::jsonb")
-	require.NoError(t, err)
+	// The fork's 235a compatibility triggers normally keep both columns equal.
+	// Drop them in this transaction so the test can reproduce a partially
+	// restored database with divergent values.
+	dropGroupModelAllowlistCompatibilityTriggers(ctx, t, tx)
 
 	// 新列仍是默认空值：旧列里的配置应该被补回来。
 	var staleID int64
@@ -85,7 +87,8 @@ func TestMigration236RecreatesMissingModelAllowlistColumn(t *testing.T) {
 	tx := testTx(t)
 	ctx := context.Background()
 
-	_, err := tx.ExecContext(ctx, "ALTER TABLE groups DROP COLUMN model_allowlist")
+	dropGroupModelAllowlistCompatibilityTriggers(ctx, t, tx)
+	_, err := tx.ExecContext(ctx, "ALTER TABLE groups DROP COLUMN models_list_config, DROP COLUMN model_allowlist")
 	require.NoError(t, err)
 
 	var groupID int64
@@ -102,6 +105,40 @@ RETURNING id
 		"SELECT model_allowlist::text FROM groups WHERE id = $1", groupID).Scan(&allowlist))
 	require.JSONEq(t, `{}`, allowlist)
 	requireModelAllowlistColumnShape(ctx, t, tx)
+}
+
+func TestMigration236PreservesForkRollbackCompatibility(t *testing.T) {
+	tx := testTx(t)
+	ctx := context.Background()
+
+	var groupID int64
+	require.NoError(t, tx.QueryRowContext(ctx, `
+INSERT INTO groups (name, platform, rate_multiplier, status, model_allowlist)
+VALUES ('migration-236-fork-compat', 'anthropic', 1, 'active', '{"enabled":true,"models":["claude-sonnet-5"]}'::jsonb)
+RETURNING id
+`).Scan(&groupID))
+
+	applyGroupModelAllowlistRepair(ctx, t, tx)
+
+	var current, legacy string
+	require.NoError(t, tx.QueryRowContext(ctx, `
+SELECT model_allowlist::text, models_list_config::text
+FROM groups
+WHERE id = $1
+`, groupID).Scan(&current, &legacy))
+	require.JSONEq(t, current, legacy)
+
+	// Migration 236 must not remove the fork's rollback mirror or its update
+	// trigger. An older rollback binary still writes models_list_config.
+	_, err := tx.ExecContext(ctx, `
+UPDATE groups
+SET models_list_config = '{"enabled":true,"models":["rollback-model"]}'::jsonb
+WHERE id = $1
+`, groupID)
+	require.NoError(t, err)
+	require.NoError(t, tx.QueryRowContext(ctx,
+		"SELECT model_allowlist::text FROM groups WHERE id = $1", groupID).Scan(&current))
+	require.JSONEq(t, `{"enabled":true,"models":["rollback-model"]}`, current)
 }
 
 func applyGroupModelAllowlistRepair(ctx context.Context, t *testing.T, tx *sql.Tx) {
@@ -124,4 +161,14 @@ WHERE table_name = 'groups' AND column_name = 'model_allowlist'
 `).Scan(&isNullable, &columnDefault))
 	require.Equal(t, "NO", isNullable)
 	require.Contains(t, columnDefault, "'{}'::jsonb")
+}
+
+func dropGroupModelAllowlistCompatibilityTriggers(ctx context.Context, t *testing.T, tx *sql.Tx) {
+	t.Helper()
+
+	_, err := tx.ExecContext(ctx, `
+DROP TRIGGER IF EXISTS groups_model_allowlist_compat_insert ON groups;
+DROP TRIGGER IF EXISTS groups_model_allowlist_compat_update ON groups;
+`)
+	require.NoError(t, err)
 }

@@ -114,7 +114,6 @@ describe('PlatformTypeBadge OpenAI authentication modes', () => {
     expect(wrapper.text()).toContain('OAuth')
   })
 })
-
 describe('PlatformTypeBadge Kimi membership levels', () => {
   it('maps the Kimi usages enum to Allegretto and renders its expiration date', async () => {
     const wrapper = mount(PlatformTypeBadge, {
@@ -132,5 +131,21 @@ describe('PlatformTypeBadge Kimi membership levels', () => {
     await wrapper.setProps({ planType: 'BASIC', subscriptionExpiresAt: undefined })
     expect(wrapper.text()).toContain('Basic')
     expect(wrapper.text()).not.toContain('Free')
+  })
+})
+
+describe('PlatformTypeBadge MiniMax', () => {
+  it('labels MiniMax API keys as MiniMax, not Gemini', () => {
+    const wrapper = mount(PlatformTypeBadge, {
+      props: {
+        platform: 'minimax',
+        type: 'apikey',
+      },
+    })
+
+    expect(wrapper.text()).toContain('MiniMax')
+    expect(wrapper.text()).toContain('Key')
+    expect(wrapper.text()).not.toContain('Gemini')
+    expect(wrapper.html()).toContain('bg-rose-100')
   })
 })

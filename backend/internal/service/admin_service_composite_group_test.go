@@ -216,7 +216,7 @@ func TestAdminService_CNProviderModelsListCandidatesKeepProviderDefaults(t *test
 	for _, model := range claude.DefaultModels {
 		want = append(want, model.ID)
 	}
-	for _, platform := range []string{PlatformZhipu, PlatformDeepseek} {
+	for _, platform := range []string{PlatformZhipu, PlatformDeepseek, PlatformMiniMax} {
 		require.Equal(t, want, defaultModelsListCandidateIDs(platform), "platform=%s", platform)
 	}
 }

@@ -2,8 +2,9 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ImageWorkbenchView from '../ImageWorkbenchView.vue'
 
-const { getImageWorkbenchConfig, getImageWorkbenchTask, submitImageWorkbenchTask } = vi.hoisted(() => ({
+const { getImageWorkbenchConfig, getImageWorkbenchModels, getImageWorkbenchTask, submitImageWorkbenchTask } = vi.hoisted(() => ({
   getImageWorkbenchConfig: vi.fn(),
+  getImageWorkbenchModels: vi.fn(),
   getImageWorkbenchTask: vi.fn(),
   submitImageWorkbenchTask: vi.fn(),
 }))
@@ -11,6 +12,7 @@ const { getImageWorkbenchConfig, getImageWorkbenchTask, submitImageWorkbenchTask
 vi.mock('@/api/imageWorkbench', () => ({
   collectImageWorkbenchURLs: () => [],
   getImageWorkbenchConfig,
+  getImageWorkbenchModels,
   getImageWorkbenchTask,
   submitImageWorkbenchTask,
 }))
@@ -42,6 +44,10 @@ describe('ImageWorkbenchView generation controls', () => {
       status: 'completed',
       created_at: 1,
       expires_at: 2,
+    })
+    getImageWorkbenchModels.mockResolvedValue({
+      models: ['gpt-image-2', 'codex-gpt-image-2'],
+      source: 'upstream',
     })
   })
 
@@ -76,6 +82,7 @@ describe('ImageWorkbenchView generation controls', () => {
 
     expect(submitImageWorkbenchTask).toHaveBeenCalledWith(expect.objectContaining({
       prompt: 'transparent icon',
+      model: 'gpt-image-2',
       size: '1025x1024',
       background: 'transparent',
     }))

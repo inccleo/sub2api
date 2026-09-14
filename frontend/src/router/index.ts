@@ -18,6 +18,12 @@ import { resolveRouteDocumentTitle } from './title'
  * Route definitions with lazy loading
  */
 const routes: RouteRecordRaw[] = [
+  {
+    path: '/oauth/authorize',
+    name: 'DesktopAuthorize',
+    component: () => import('@/views/auth/DesktopAuthorizeView.vue'),
+    meta: { requiresAuth: true, title: 'Authorize desktop app', titleKey: 'desktopAuth.title' }
+  },
   // ==================== Setup Routes ====================
   {
     path: '/setup',
@@ -238,7 +244,7 @@ const routes: RouteRecordRaw[] = [
       title: 'Image Studio',
       titleKey: 'imageWorkbench.title',
       descriptionKey: 'imageWorkbench.description',
-      // 禁止整页滚动：由页面内部（右侧历史列表）自行滚动
+      // 禁止整页滚动：由页面内部（会话列表与结果区）自行滚动
       fillHeight: true
     }
   },

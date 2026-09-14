@@ -29,6 +29,8 @@ export interface ImageWorkbenchTask {
 
 export interface SubmitImageWorkbenchTask {
   prompt: string
+  /** Image model id, e.g. `gpt-image-2`. Falls back to the server default when empty. */
+  model?: string
   size: string
   quality: string
   background?: 'transparent'
@@ -37,8 +39,23 @@ export interface SubmitImageWorkbenchTask {
   images?: File[]
 }
 
+export interface ImageWorkbenchModels {
+  models: string[]
+  /** `upstream` when the list came from chatgpt2api, `fallback` when it is the built-in catalog. */
+  source: 'upstream' | 'fallback'
+}
+
 export async function getImageWorkbenchConfig(): Promise<ImageWorkbenchConfig> {
   const response = await apiClient.get<ImageWorkbenchConfig>('/image-workbench/config')
+  return response.data
+}
+
+/**
+ * List the image models the chatgpt2api upstream currently advertises.
+ * The server keeps the downstream credential, so this stays a plain panel call.
+ */
+export async function getImageWorkbenchModels(): Promise<ImageWorkbenchModels> {
+  const response = await apiClient.get<ImageWorkbenchModels>('/image-workbench/models')
   return response.data
 }
 
@@ -47,6 +64,7 @@ export async function submitImageWorkbenchTask(payload: SubmitImageWorkbenchTask
   if (images.length > 0) {
     const form = new FormData()
     form.append('prompt', payload.prompt)
+    if (payload.model) form.append('model', payload.model)
     form.append('size', payload.size)
     form.append('quality', payload.quality)
     if (payload.background) form.append('background', payload.background)
@@ -72,6 +90,7 @@ export async function submitImageWorkbenchTask(payload: SubmitImageWorkbenchTask
 
   const response = await apiClient.post<ImageWorkbenchTask>('/image-workbench/tasks', {
     prompt: payload.prompt,
+    ...(payload.model ? { model: payload.model } : {}),
     size: payload.size,
     quality: payload.quality,
     ...(payload.background ? { background: payload.background } : {}),

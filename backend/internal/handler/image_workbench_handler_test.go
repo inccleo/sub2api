@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -20,12 +21,35 @@ import (
 )
 
 type imageWorkbenchKeyProviderStub struct {
-	key *service.APIKey
-	err error
+	key     *service.APIKey
+	err     error
+	groupID int64
 }
 
 func (s imageWorkbenchKeyProviderStub) GetOrCreateImageWorkbenchKey(context.Context, int64) (*service.APIKey, error) {
 	return s.key, s.err
+}
+
+func (s imageWorkbenchKeyProviderStub) GetImageWorkbenchGroupID(context.Context, int64) (int64, error) {
+	if s.err != nil {
+		return 0, s.err
+	}
+	return s.groupID, nil
+}
+
+// imageWorkbenchUpstreamStub resolves every group to the same chatgpt2api
+// endpoint so the model catalog tests stay focused on parsing and caching.
+type imageWorkbenchUpstreamStub struct {
+	upstream *imageWorkbenchUpstream
+	calls    int
+}
+
+func (s *imageWorkbenchUpstreamStub) ResolveImageWorkbenchUpstream(context.Context, int64) (*imageWorkbenchUpstream, error) {
+	s.calls++
+	if s.upstream == nil {
+		return nil, service.ErrImageWorkbenchUnavailable
+	}
+	return s.upstream, nil
 }
 
 func TestImageWorkbenchConfigReturnsUnavailableWithoutEligibleGroup(t *testing.T) {
@@ -75,7 +99,7 @@ func TestImageWorkbenchSubmitUsesManagedKeyAndForcesPayload(t *testing.T) {
 	})
 	router.POST("/api/v1/image-workbench/tasks", h.Submit)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/image-workbench/tasks", strings.NewReader(`{"prompt":"  neon city  ","size":"1536x1024","quality":"high","background":"transparent","model":"other","n":8}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/image-workbench/tasks", strings.NewReader(`{"prompt":"  neon city  ","size":"1536x1024","quality":"high","background":"transparent","model":"codex-gpt-image-2","n":8}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer jwt-user-token")
 	w := httptest.NewRecorder()
@@ -84,7 +108,8 @@ func TestImageWorkbenchSubmitUsesManagedKeyAndForcesPayload(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, w.Code)
 	require.Equal(t, "/v1/images/generations/async", gotPath)
 	require.Equal(t, "Bearer sk-managed", gotAuthorization)
-	require.Equal(t, imageWorkbenchModel, gotPayload["model"])
+	// A caller-supplied model is honored; the default only kicks in when omitted.
+	require.Equal(t, "codex-gpt-image-2", gotPayload["model"])
 	require.Equal(t, "neon city", gotPayload["prompt"])
 	require.Equal(t, "1536x1024", gotPayload["size"])
 	require.Equal(t, "high", gotPayload["quality"])
@@ -201,6 +226,156 @@ func TestImageWorkbenchSubmitRejectsUnsupportedControls(t *testing.T) {
 	router.ServeHTTP(w, req)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Contains(t, w.Body.String(), "Unsupported image count")
+
+	// Model ids outside the conservative charset are rejected.
+	req = httptest.NewRequest(http.MethodPost, "/tasks", strings.NewReader(`{"prompt":"cat","size":"1024x1024","quality":"auto","model":"gpt-image-2/../../etc"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Contains(t, w.Body.String(), "Unsupported image model")
+}
+
+func TestImageWorkbenchModelsFallsBackWhenUpstreamUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := &ImageWorkbenchHandler{}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 7})
+	})
+	router.GET("/models", h.Models)
+
+	req := httptest.NewRequest(http.MethodGet, "/models", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Contains(t, w.Body.String(), `"source":"fallback"`)
+	require.Contains(t, w.Body.String(), "gpt-image-2")
+}
+
+func TestImageWorkbenchModelsFiltersUpstreamCatalog(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "Bearer downstream-secret", r.Header.Get("Authorization"))
+		switch r.URL.Path {
+		case "/api/model-catalog":
+			// Older chatgpt2api builds do not expose the catalog, so this must
+			// degrade to the /v1/models filter instead of failing the request.
+			w.WriteHeader(http.StatusNotFound)
+		case "/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[{"id":"gpt-5"},{"id":"gpt-image-2"},{"id":"codex-gpt-image-2"},{"id":"gpt-image-2"}]}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer upstream.Close()
+
+	h := NewImageWorkbenchHandler(nil, nil, nil)
+	h.SetImageChatConfig(&config.Config{ImageChat: config.ImageChatConfig{Enabled: true, BaseURL: upstream.URL, APIKey: "downstream-secret"}})
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 7})
+	})
+	router.GET("/models", h.Models)
+
+	req := httptest.NewRequest(http.MethodGet, "/models", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Contains(t, w.Body.String(), `"source":"upstream"`)
+	require.NotContains(t, w.Body.String(), "gpt-5")
+	var payload struct {
+		Data struct {
+			Models []string `json:"models"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
+	require.Equal(t, []string{"codex-gpt-image-2", "gpt-image-2"}, payload.Data.Models)
+}
+
+func TestImageWorkbenchModelsPrefersUpstreamModelCatalog(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var catalogRequests int
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "Bearer downstream-secret", r.Header.Get("Authorization"))
+		require.Equal(t, "/api/model-catalog", r.URL.Path)
+		catalogRequests++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"object":"model_catalog","chat_models":["gpt-5.6"],"image_models":["gpt-image-2","gpt-image-2.5","gpt-image-2.5-flare","gpt-image-2.5-sunburst","codex-gpt-image-2","plus-codex-gpt-image-2","pro-codex-gpt-image-2"]}`))
+	}))
+	defer upstream.Close()
+
+	h := NewImageWorkbenchHandler(nil, nil, nil)
+	h.SetImageChatConfig(&config.Config{ImageChat: config.ImageChatConfig{Enabled: true, BaseURL: upstream.URL, APIKey: "downstream-secret"}})
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 7})
+	})
+	router.GET("/models", h.Models)
+
+	req := httptest.NewRequest(http.MethodGet, "/models", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, 1, catalogRequests)
+	var payload struct {
+		Data struct {
+			Models []string `json:"models"`
+			Source string   `json:"source"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
+	require.Equal(t, "upstream", payload.Data.Source)
+	require.Equal(t, []string{
+		"gpt-image-2",
+		"gpt-image-2.5",
+		"gpt-image-2.5-flare",
+		"gpt-image-2.5-sunburst",
+		"codex-gpt-image-2",
+		"plus-codex-gpt-image-2",
+		"pro-codex-gpt-image-2",
+	}, payload.Data.Models)
+}
+
+func TestImageWorkbenchModelsUsesImageGroupUpstream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var requested []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = append(requested, r.URL.Path)
+		require.Equal(t, "Bearer group-account-key", r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"object":"model_catalog","image_models":["gpt-image-2","gpt-image-2.5","codex-gpt-image-2"]}`))
+	}))
+	defer upstream.Close()
+
+	resolver := &imageWorkbenchUpstreamStub{upstream: &imageWorkbenchUpstream{BaseURL: upstream.URL, APIKey: "group-account-key"}}
+	h := &ImageWorkbenchHandler{apiKeys: imageWorkbenchKeyProviderStub{groupID: 2}, upstreams: resolver}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 7})
+	})
+	router.GET("/models", h.Models)
+
+	req := httptest.NewRequest(http.MethodGet, "/models", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, 1, resolver.calls)
+	require.Equal(t, []string{"/api/model-catalog"}, requested)
+	var payload struct {
+		Data struct {
+			Models []string `json:"models"`
+			Source string   `json:"source"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
+	require.Equal(t, "upstream", payload.Data.Source)
+	require.Equal(t, []string{"gpt-image-2", "gpt-image-2.5", "codex-gpt-image-2"}, payload.Data.Models)
 }
 
 func TestImageWorkbenchSubmitEditRoutesToEditsAsync(t *testing.T) {
@@ -274,7 +449,7 @@ func TestImageWorkbenchSubmitEditRoutesToEditsAsync(t *testing.T) {
 		_ = p.Close()
 	}
 	require.Equal(t, 1, fileCount)
-	require.Equal(t, imageWorkbenchModel, fields["model"])
+	require.Equal(t, imageWorkbenchDefaultModel, fields["model"])
 	require.Equal(t, "make it blue", fields["prompt"])
 	require.Equal(t, "1024x1024", fields["size"])
 	require.Equal(t, "high", fields["quality"])

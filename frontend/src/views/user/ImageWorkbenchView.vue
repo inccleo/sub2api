@@ -1,23 +1,250 @@
 <template>
   <AppLayout>
-    <!-- 大屏：AppLayout fillHeight 锁死视口，整页不滚；仅右侧历史列表滚动 -->
-    <div class="mx-auto flex w-full max-w-[1600px] flex-col gap-2 lg:h-full lg:min-h-0 lg:overflow-hidden">
-      <div v-if="configError" class="shrink-0 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
-        {{ configError }}
-      </div>
+    <!-- 大屏：AppLayout fillHeight 锁死视口，整页不滚；仅会话列表与结果区各自滚动 -->
+    <div class="flex min-h-0 min-w-0 flex-1 gap-3 lg:overflow-hidden">
+      <!-- 会话历史 -->
+      <aside
+        class="fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col border-r border-gray-200 bg-white p-2 shadow-xl transition-transform duration-200 dark:border-dark-700 dark:bg-dark-800 lg:static lg:z-auto lg:h-full lg:min-h-0 lg:translate-x-0 lg:rounded-xl lg:border lg:shadow-sm"
+        :class="mobileListOpen ? 'translate-x-0' : '-translate-x-full'"
+      >
+        <div class="flex items-center justify-between gap-1 border-b border-gray-200 px-1.5 pb-2 dark:border-dark-700">
+          <h2 class="truncate text-sm font-semibold text-gray-900 dark:text-white">{{ t('imageWorkbench.conversations') }}</h2>
+          <div class="flex shrink-0 items-center gap-0.5">
+            <button
+              type="button"
+              class="btn btn-ghost px-1.5 py-1 text-[11px]"
+              :disabled="!conversations.length"
+              @click="confirmClearConversations = true"
+            >
+              {{ t('imageWorkbench.clearConversations') }}
+            </button>
+            <button type="button" class="icon-btn" :title="t('imageWorkbench.newConversation')" @click="newConversation">
+              <Icon name="plus" size="sm" />
+            </button>
+          </div>
+        </div>
 
-      <div class="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[minmax(250px,290px)_minmax(0,1fr)_minmax(220px,260px)] lg:overflow-hidden">
-        <!-- 左：提示词 + 默认展开的生成选项 -->
-        <section class="min-h-0 min-w-0 rounded-lg border border-gray-200 bg-white p-3 shadow-sm dark:border-dark-700 dark:bg-dark-800 lg:overflow-y-auto lg:overscroll-contain">
-          <form
-            class="relative flex flex-col gap-2.5"
-            :class="isDraggingReference ? 'ring-2 ring-primary-400 ring-offset-2 dark:ring-offset-dark-800' : ''"
-            @submit.prevent="generate"
-            @dragenter.prevent="onReferenceDragEnter"
-            @dragover.prevent="onReferenceDragOver"
-            @dragleave.prevent="onReferenceDragLeave"
-            @drop.prevent="onReferenceDrop"
+        <div class="mt-2 min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain px-0.5">
+          <p v-if="!conversations.length" class="px-2 py-8 text-center text-xs text-gray-400">
+            {{ t('imageWorkbench.emptyConversations') }}
+          </p>
+          <div
+            v-for="conversation in conversations"
+            :key="conversation.id"
+            class="group flex items-center gap-1 rounded-lg px-1.5 py-1.5 transition"
+            :class="conversation.id === activeConversationId
+              ? 'bg-gray-100 dark:bg-dark-700'
+              : 'hover:bg-gray-50 dark:hover:bg-dark-700/60'"
           >
+            <button type="button" class="flex min-w-0 flex-1 flex-col items-start text-left" @click="selectConversation(conversation.id)">
+              <span class="w-full truncate text-sm font-medium text-gray-800 dark:text-gray-100">{{ conversation.title }}</span>
+              <span class="text-[11px] text-gray-400">
+                {{ formatTime(conversation.updatedAt) }} · {{ t('imageWorkbench.turnCount', { n: conversation.turns.length }) }}
+              </span>
+            </button>
+            <button
+              type="button"
+              class="shrink-0 rounded p-1 text-gray-400 opacity-0 transition hover:text-red-500 focus:opacity-100 group-hover:opacity-100"
+              :title="t('imageWorkbench.deleteConversation')"
+              @click.stop="removeConversation(conversation.id)"
+            >
+              <Icon name="trash" size="xs" />
+            </button>
+          </div>
+        </div>
+      </aside>
+      <div v-if="mobileListOpen" class="fixed inset-0 z-30 bg-black/30 lg:hidden" @click="mobileListOpen = false" />
+
+      <!-- 主工作区 -->
+      <section class="flex min-h-0 min-w-0 flex-1 flex-col rounded-xl border border-gray-200 bg-white shadow-sm dark:border-dark-700 dark:bg-dark-800 lg:overflow-hidden">
+        <header class="flex shrink-0 items-center justify-between gap-2 border-b border-gray-200 px-3 py-2.5 dark:border-dark-700">
+          <div class="flex min-w-0 items-center gap-2">
+            <button type="button" class="icon-btn lg:hidden" :title="t('imageWorkbench.conversations')" @click="mobileListOpen = true">
+              <Icon name="menu" size="sm" />
+            </button>
+            <div class="min-w-0">
+              <h1 class="truncate text-sm font-semibold text-gray-900 dark:text-white">
+                {{ activeConversation?.title || t('imageWorkbench.title') }}
+              </h1>
+              <p class="truncate text-[11px] text-gray-500 dark:text-gray-400">{{ t('imageWorkbench.description') }}</p>
+            </div>
+          </div>
+          <div class="flex shrink-0 items-center gap-2">
+            <span
+              v-if="processingCount > 0"
+              class="hidden items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 sm:inline-flex"
+            >
+              <Icon name="refresh" size="xs" class="animate-spin" />
+              {{ t('imageWorkbench.processingBadge', { n: processingCount }) }}
+            </span>
+            <button
+              v-if="activeTurns.length"
+              type="button"
+              class="icon-btn"
+              :title="t('imageWorkbench.clearConversation')"
+              @click="confirmClearConversation = true"
+            >
+              <Icon name="trash" size="sm" />
+            </button>
+          </div>
+        </header>
+
+        <!-- 结果区 -->
+        <div ref="scrollEl" class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 md:px-5">
+          <div v-if="!activeTurns.length" class="mx-auto flex h-full max-w-md flex-col items-center justify-center text-center">
+            <div class="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300">
+              <Icon name="sparkles" size="lg" />
+            </div>
+            <h2 class="text-base font-semibold text-gray-900 dark:text-white">{{ t('imageWorkbench.emptyTitle') }}</h2>
+            <p class="mt-1.5 text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('imageWorkbench.emptyHint') }}</p>
+          </div>
+
+          <div v-else class="mx-auto max-w-3xl space-y-4">
+            <article
+              v-for="turn in activeTurns"
+              :key="turn.id"
+              class="rounded-2xl border border-gray-200 bg-gray-50/60 p-3 dark:border-dark-700 dark:bg-dark-900/40"
+            >
+              <div class="flex flex-wrap items-start justify-between gap-2">
+                <div class="flex min-w-0 items-start gap-2">
+                  <span class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-primary-600 text-white">
+                    <Icon name="user" size="xs" />
+                  </span>
+                  <div class="min-w-0">
+                    <p class="whitespace-pre-wrap break-words text-sm text-gray-900 dark:text-gray-100">{{ turn.prompt }}</p>
+                    <div class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+                      <span class="rounded-full bg-white px-2 py-0.5 dark:bg-dark-800">{{ turn.model }}</span>
+                      <span class="rounded-full bg-white px-2 py-0.5 dark:bg-dark-800">{{ t(`imageWorkbench.qualityLabels.${turn.quality}`) }}</span>
+                      <span class="rounded-full bg-white px-2 py-0.5 dark:bg-dark-800">{{ turn.size }}</span>
+                      <span class="rounded-full bg-white px-2 py-0.5 dark:bg-dark-800">{{ turn.n }} {{ t('imageWorkbench.countUnit') }}</span>
+                      <span v-if="turn.mode === 'edit'" class="rounded-full bg-white px-2 py-0.5 dark:bg-dark-800">{{ t('imageWorkbench.modeEdit') }}</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="flex shrink-0 items-center gap-0.5">
+                  <button
+                    v-if="turn.status !== 'processing'"
+                    type="button"
+                    class="btn btn-ghost px-2 py-1 text-[11px]"
+                    @click="regenerate(turn)"
+                  >
+                    <Icon name="refresh" size="xs" />{{ t('imageWorkbench.regenerate') }}
+                  </button>
+                  <button
+                    v-if="turn.urls.length"
+                    type="button"
+                    class="btn btn-ghost px-2 py-1 text-[11px]"
+                    @click="continueEdit(turn)"
+                  >
+                    <Icon name="edit" size="xs" />{{ t('imageWorkbench.continueEdit') }}
+                  </button>
+                  <button type="button" class="icon-btn" :title="t('imageWorkbench.deleteTurn')" @click="removeTurn(turn.id)">
+                    <Icon name="trash" size="xs" />
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="turn.referenceImages.length" class="mt-2 flex flex-wrap gap-1.5">
+                <img
+                  v-for="(reference, index) in turn.referenceImages"
+                  :key="`${turn.id}-reference-${index}`"
+                  :src="reference.dataUrl"
+                  :alt="reference.name"
+                  class="h-12 w-12 rounded-lg border border-gray-200 object-cover dark:border-dark-600"
+                />
+              </div>
+
+              <div class="mt-3">
+                <div
+                  v-if="turn.status === 'processing'"
+                  class="flex flex-col items-center justify-center gap-2 rounded-xl bg-white/70 py-10 dark:bg-dark-800/60"
+                >
+                  <div class="h-8 w-8 animate-spin rounded-full border-2 border-gray-300 border-t-primary-600 dark:border-dark-600 dark:border-t-primary-400" />
+                  <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('imageWorkbench.processingHint') }}</p>
+                </div>
+                <div
+                  v-else-if="turn.status === 'failed'"
+                  class="flex flex-col items-center justify-center gap-2 rounded-xl bg-red-50/70 px-4 py-8 text-center dark:bg-red-950/20"
+                >
+                  <Icon name="exclamationCircle" size="lg" class="text-red-500" />
+                  <p class="break-words text-xs text-red-600 dark:text-red-400">{{ turn.error || t('imageWorkbench.taskFailed') }}</p>
+                </div>
+                <div v-else class="grid gap-2" :class="resultGridClass(turn.urls.length)">
+                  <button
+                    v-for="(url, index) in turn.urls"
+                    :key="`${turn.id}-result-${index}`"
+                    type="button"
+                    class="group relative overflow-hidden rounded-xl bg-white transition hover:opacity-95 dark:bg-dark-900"
+                    :title="t('imageWorkbench.zoomHint')"
+                    @click="openLightbox(turn, index)"
+                  >
+                    <img
+                      :src="url"
+                      :alt="`${turn.prompt} #${index + 1}`"
+                      class="mx-auto max-h-80 w-full object-contain"
+                      loading="lazy"
+                    />
+                    <span class="absolute right-2 top-2 rounded-md bg-black/60 px-1.5 py-0.5 text-[11px] text-white opacity-0 transition group-hover:opacity-100">
+                      {{ index + 1 }}
+                    </span>
+                  </button>
+                </div>
+
+                <div
+                  v-if="turn.status === 'completed' && turn.urls.length"
+                  class="mt-2 flex flex-wrap items-center justify-end gap-2"
+                >
+                  <button
+                    v-if="turn.urls.length > 1"
+                    type="button"
+                    class="btn btn-secondary px-2.5 py-1 text-[11px]"
+                    :disabled="downloadingAll"
+                    @click="downloadAll(turn)"
+                  >
+                    <Icon name="download" size="xs" />{{ t('imageWorkbench.downloadAll') }}
+                  </button>
+                  <button type="button" class="btn btn-primary px-2.5 py-1 text-[11px]" @click="downloadOne(turn.urls[0], 0)">
+                    <Icon name="download" size="xs" />{{ t('imageWorkbench.download') }}
+                  </button>
+                </div>
+              </div>
+            </article>
+          </div>
+        </div>
+
+        <!-- 输入区 -->
+        <form
+          class="shrink-0 border-t border-gray-200 p-3 dark:border-dark-700"
+          :class="isDraggingReference ? 'bg-primary-50/40 dark:bg-primary-950/10' : ''"
+          @submit.prevent="send"
+          @dragenter.prevent="onReferenceDragEnter"
+          @dragover.prevent="onReferenceDragOver"
+          @dragleave="onReferenceDragLeave"
+          @drop.prevent="onReferenceDrop"
+        >
+          <div class="mx-auto w-full max-w-3xl">
+            <div v-if="configError" class="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
+              {{ configError }}
+            </div>
+
+            <div v-if="referenceImages.length" class="mb-2 flex flex-wrap gap-2">
+              <div
+                v-for="(reference, index) in referenceImages"
+                :key="reference.id"
+                class="relative h-14 w-14 overflow-hidden rounded-lg border border-gray-200 dark:border-dark-600"
+              >
+                <img :src="reference.dataUrl" :alt="reference.name" class="h-full w-full object-cover" />
+                <button
+                  type="button"
+                  class="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+                  :title="t('imageWorkbench.removeReference')"
+                  @click="removeReferenceImage(index)"
+                >
+                  <Icon name="x" size="xs" />
+                </button>
+              </div>
+            </div>
+
             <input
               ref="fileInputRef"
               type="file"
@@ -27,80 +254,67 @@
               @change="onReferenceFileInput"
             />
 
-            <!-- 参考图（有图即进入编辑/图生图模式，对齐 chatgpt2api） -->
-            <div>
-              <div class="mb-1 flex items-center justify-between gap-2">
-                <span class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ t('imageWorkbench.referenceImages') }}</span>
-                <button
-                  type="button"
-                  class="btn btn-ghost px-2 py-1 text-xs"
-                  :disabled="submitting || !config || referenceImages.length >= maxImages"
-                  @click="pickReferenceImages"
-                >
-                  <Icon name="upload" size="sm" />
-                  {{ referenceImages.length ? t('imageWorkbench.addReference') : t('imageWorkbench.uploadReference') }}
-                </button>
-              </div>
-              <div v-if="referenceImages.length" class="mb-1.5 flex flex-wrap gap-2">
-                <div
-                  v-for="(item, index) in referenceImages"
-                  :key="item.id"
-                  class="relative h-14 w-14 overflow-hidden rounded-lg border border-gray-200 dark:border-dark-600"
-                >
-                  <img :src="item.previewUrl" :alt="item.file.name" class="h-full w-full object-cover" />
+            <div
+              class="rounded-2xl border border-gray-300 bg-white p-2 shadow-sm transition focus-within:border-primary-500 dark:border-dark-600 dark:bg-dark-900"
+            >
+              <textarea
+                ref="textareaRef"
+                v-model="prompt"
+                rows="2"
+                maxlength="32000"
+                class="w-full resize-none border-0 bg-transparent px-2 py-1.5 text-sm leading-6 text-gray-900 outline-none placeholder:text-gray-400 dark:text-white"
+                :placeholder="isEditMode ? t('imageWorkbench.promptPlaceholderEdit') : t('imageWorkbench.promptPlaceholder')"
+                :disabled="submitting || !ready"
+                @paste="onPromptPaste"
+                @keydown.enter.exact.prevent="send"
+              />
+              <div class="mt-1 flex items-center justify-between gap-2">
+                <div class="flex min-w-0 items-center gap-1.5">
                   <button
                     type="button"
-                    class="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
-                    :title="t('imageWorkbench.removeReference')"
-                    @click="removeReferenceImage(index)"
+                    class="icon-btn"
+                    :title="referenceImages.length ? t('imageWorkbench.addReference') : t('imageWorkbench.uploadReference')"
+                    :disabled="submitting || !config || referenceImages.length >= maxImages"
+                    @click="pickReferenceImages"
                   >
-                    <Icon name="x" size="xs" />
+                    <Icon name="upload" size="sm" />
+                  </button>
+                  <button
+                    type="button"
+                    class="flex h-8 min-w-0 items-center gap-1 rounded-full bg-gray-100 px-3 text-xs font-medium text-gray-700 transition hover:bg-gray-200 dark:bg-dark-800 dark:text-gray-200 dark:hover:bg-dark-700"
+                    :title="t('imageWorkbench.settings')"
+                    @click="settingsOpen = !settingsOpen"
+                  >
+                    <Icon :name="settingsOpen ? 'chevronDown' : 'cog'" size="xs" />
+                    <span class="truncate">{{ settingsSummary }}</span>
                   </button>
                 </div>
+                <button
+                  type="submit"
+                  class="btn btn-primary h-9 shrink-0 px-3"
+                  :disabled="submitting || !ready || !prompt.trim()"
+                >
+                  <Icon :name="submitting ? 'refresh' : 'arrowUp'" size="sm" :class="submitting ? 'animate-spin' : ''" />
+                </button>
               </div>
-              <p class="text-[11px] leading-4 text-gray-400">
-                {{ t('imageWorkbench.referenceHint', { n: maxImages }) }}
-              </p>
             </div>
 
-            <label class="block">
-              <span class="mb-1 block text-sm font-medium text-gray-800 dark:text-gray-200">{{ t('imageWorkbench.prompt') }}</span>
-              <textarea
-                v-model="prompt"
-                rows="3"
-                maxlength="32000"
-                class="h-[4.75rem] w-full resize-y rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm leading-5 text-gray-900 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-dark-600 dark:bg-dark-900 dark:text-white"
-                :placeholder="isEditMode ? t('imageWorkbench.promptPlaceholderEdit') : t('imageWorkbench.promptPlaceholder')"
-                :disabled="submitting || !config"
-                @paste="onPromptPaste"
-              />
-            </label>
-
+            <!-- 生成选项 -->
             <div
-              v-if="isDraggingReference"
-              class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-primary-500 bg-primary-50/80 text-sm font-medium text-primary-700 dark:bg-primary-950/70 dark:text-primary-200"
+              v-show="settingsOpen"
+              class="mt-2 space-y-3 rounded-2xl border border-gray-200 bg-gray-50/70 p-3 dark:border-dark-700 dark:bg-dark-900/50"
             >
-              {{ t('imageWorkbench.dropReference') }}
-            </div>
-
-            <div class="rounded-lg border border-gray-200 dark:border-dark-600">
-              <button
-                type="button"
-                class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
-                @click="settingsOpen = !settingsOpen"
-              >
-                <div class="min-w-0">
-                  <div class="text-sm font-medium text-gray-900 dark:text-white">{{ t('imageWorkbench.settings') }}</div>
-                  <div class="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400">{{ settingsSummary }}</div>
-                </div>
-                <Icon :name="settingsOpen ? 'chevronUp' : 'chevronDown'" size="sm" class="shrink-0 text-gray-400" />
-              </button>
-
-              <div v-show="settingsOpen" class="space-y-2.5 border-t border-gray-200 px-3 py-2.5 dark:border-dark-600">
-                <div class="flex items-center justify-between gap-2">
+              <div class="grid gap-3 sm:grid-cols-2">
+                <label class="flex items-center justify-between gap-2">
                   <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ t('imageWorkbench.model') }}</span>
-                  <span class="truncate rounded-md bg-gray-100 px-2 py-0.5 text-xs text-gray-700 dark:bg-dark-900 dark:text-gray-200">{{ modelLabel }}</span>
-                </div>
+                  <select
+                    v-model="model"
+                    class="input h-8 w-[60%] py-0 text-xs"
+                    :disabled="submitting || !ready"
+                  >
+                    <option v-for="option in availableModels" :key="option" :value="option">{{ option }}</option>
+                  </select>
+                </label>
 
                 <div>
                   <span class="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">{{ t('imageWorkbench.quality') }}</span>
@@ -119,7 +333,28 @@
                     </button>
                   </div>
                 </div>
+              </div>
 
+              <div>
+                <span class="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">{{ t('imageWorkbench.aspectRatio') }}</span>
+                <div class="grid grid-cols-4 gap-1 sm:grid-cols-7">
+                  <button
+                    v-for="option in aspectOptions"
+                    :key="`${option.value}-${option.label}`"
+                    type="button"
+                    class="flex h-11 flex-col items-center justify-center gap-0.5 rounded-lg border px-0.5 text-center transition"
+                    :class="size === option.value
+                      ? 'border-gray-900 ring-1 ring-gray-900 dark:border-white dark:ring-white'
+                      : 'border-gray-200 text-gray-600 hover:border-gray-300 dark:border-dark-600 dark:text-gray-300'"
+                    @click="selectAspect(option)"
+                  >
+                    <span v-if="option.shape" class="block border border-current opacity-70" :class="option.shape" />
+                    <span class="text-[10px] font-medium leading-none">{{ option.label }}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="grid gap-3 sm:grid-cols-2">
                 <div>
                   <div class="mb-1 flex items-center justify-between gap-2">
                     <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ t('imageWorkbench.customSize') }}</span>
@@ -159,33 +394,6 @@
                   </div>
                 </div>
 
-                <div class="flex items-center justify-between gap-3">
-                  <div class="min-w-0">
-                    <span class="block text-xs font-medium text-gray-700 dark:text-gray-300">{{ t('imageWorkbench.transparentBackground') }}</span>
-                    <p class="mt-0.5 text-[10px] leading-4 text-gray-400">{{ t('imageWorkbench.transparentBackgroundHint') }}</p>
-                  </div>
-                  <Toggle v-model="transparentBackground" />
-                </div>
-
-                <div>
-                  <span class="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">{{ t('imageWorkbench.aspectRatio') }}</span>
-                  <div class="grid grid-cols-4 gap-1">
-                    <button
-                      v-for="option in aspectOptions"
-                      :key="option.value"
-                      type="button"
-                      class="flex h-11 flex-col items-center justify-center gap-0.5 rounded-lg border px-0.5 text-center transition"
-                      :class="size === option.value
-                        ? 'border-gray-900 ring-1 ring-gray-900 dark:border-white dark:ring-white'
-                        : 'border-gray-200 text-gray-600 hover:border-gray-300 dark:border-dark-600 dark:text-gray-300'"
-                      @click="selectAspect(option)"
-                    >
-                      <span v-if="option.shape" class="block border border-current opacity-70" :class="option.shape" />
-                      <span class="text-[10px] font-medium leading-none">{{ option.label }}</span>
-                    </button>
-                  </div>
-                </div>
-
                 <div>
                   <span class="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">{{ t('imageWorkbench.count') }}</span>
                   <div class="grid grid-cols-5 gap-1">
@@ -204,180 +412,43 @@
                   </div>
                 </div>
               </div>
-            </div>
 
-            <p v-if="submitError" class="text-sm text-red-600 dark:text-red-400">{{ submitError }}</p>
-
-            <button type="submit" class="btn btn-primary w-full" :disabled="submitting || !config || !prompt.trim()">
-              <Icon :name="submitting ? 'refresh' : 'sparkles'" size="sm" :class="submitting ? 'animate-spin' : ''" />
-              {{
-                submitting
-                  ? (isEditMode ? t('imageWorkbench.editing') : t('imageWorkbench.generating'))
-                  : (isEditMode ? t('imageWorkbench.editMode') : t('imageWorkbench.generateMode'))
-              }}
-            </button>
-          </form>
-        </section>
-
-        <!-- 中：生成结果（大屏不滚） -->
-        <section class="flex min-h-[280px] min-w-0 flex-col rounded-lg border border-gray-200 bg-white shadow-sm dark:border-dark-700 dark:bg-dark-800 lg:min-h-0 lg:overflow-hidden">
-          <div class="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-gray-200 px-3 dark:border-dark-700">
-            <div class="flex min-w-0 items-center gap-2">
-              <h2 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('imageWorkbench.result') }}</h2>
-              <span v-if="resultImages.length > 1" class="text-xs text-gray-400">
-                {{ t('imageWorkbench.resultCount', { n: resultImages.length }) }}
-              </span>
-            </div>
-            <span v-if="activeTask" class="shrink-0 text-xs font-medium uppercase text-gray-400">{{ activeTask.status }}</span>
-          </div>
-
-          <div class="flex min-h-0 flex-1 flex-col p-2.5 lg:min-h-0">
-            <div class="relative flex min-h-[200px] w-full flex-1 items-center justify-center overflow-hidden rounded-lg bg-gray-100 dark:bg-dark-900 lg:min-h-0">
-              <!-- 多图网格 / 单图 -->
-              <div
-                v-if="activeTask?.status === 'completed' && resultImages.length"
-                class="grid h-full w-full content-center gap-2 overflow-hidden p-2"
-                :class="resultGridClass"
-              >
-                <button
-                  v-for="(url, index) in resultImages"
-                  :key="`${url}-${index}`"
-                  type="button"
-                  class="group relative overflow-hidden rounded-lg bg-white/50 transition hover:opacity-95 dark:bg-black/20"
-                  :title="t('imageWorkbench.zoomHint')"
-                  @click="openLightbox(index)"
-                >
-                  <img
-                    :src="url"
-                    :alt="`${activeRecord?.prompt || t('imageWorkbench.result')} #${index + 1}`"
-                    class="mx-auto max-h-full max-w-full object-contain"
-                    :class="resultImages.length === 1 ? 'max-h-full' : 'max-h-40 sm:max-h-52 lg:max-h-56'"
-                  />
-                  <span class="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition group-hover:bg-black/25 group-hover:opacity-100">
-                    <span class="rounded-full bg-white/90 px-2.5 py-1 text-xs font-medium text-gray-800 shadow">
-                      {{ t('imageWorkbench.zoomHint') }}
-                    </span>
-                  </span>
-                  <span
-                    v-if="resultImages.length > 1"
-                    class="absolute left-1.5 top-1.5 rounded bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white"
-                  >
-                    {{ index + 1 }}
-                  </span>
-                </button>
-              </div>
-
-              <div v-else-if="activeTask?.status === 'processing'" class="max-w-sm px-6 text-center">
-                <div class="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-gray-300 border-t-primary-600 dark:border-dark-600 dark:border-t-primary-400" />
-                <p class="font-medium text-gray-900 dark:text-white">{{ t('imageWorkbench.processing') }}</p>
-                <p class="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('imageWorkbench.processingHint') }}</p>
-              </div>
-              <div v-else-if="activeTask?.status === 'failed'" class="max-w-sm px-6 text-center">
-                <Icon name="exclamationCircle" size="xl" class="mx-auto text-red-500" />
-                <p class="mt-4 font-medium text-gray-900 dark:text-white">{{ t('imageWorkbench.failed') }}</p>
-                <p class="mt-2 break-words text-sm text-red-600 dark:text-red-400">{{ taskError(activeTask) }}</p>
-              </div>
-              <div v-else class="max-w-sm px-6 text-center">
-                <Icon name="sparkles" size="xl" class="mx-auto text-gray-400" />
-                <p class="mt-4 font-medium text-gray-900 dark:text-white">{{ t('imageWorkbench.ready') }}</p>
-                <p class="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('imageWorkbench.readyHint') }}</p>
-              </div>
-            </div>
-
-            <div v-if="activeTask?.status === 'completed' && resultImages.length" class="mt-2.5 flex shrink-0 flex-wrap items-center justify-between gap-2">
-              <p class="text-xs text-gray-400">{{ t('imageWorkbench.zoomHint') }}</p>
-              <div class="flex flex-wrap justify-end gap-2">
-                <button
-                  v-if="resultImages.length > 1"
-                  type="button"
-                  class="btn btn-secondary"
-                  :disabled="downloadingAll"
-                  @click="downloadAllImages"
-                >
-                  <Icon :name="downloadingAll ? 'refresh' : 'download'" size="sm" :class="downloadingAll ? 'animate-spin' : ''" />
-                  {{ t('imageWorkbench.downloadAll') }}
-                </button>
-                <button type="button" class="btn btn-primary" :disabled="downloadingOne" @click="downloadImageAt(0)">
-                  <Icon :name="downloadingOne ? 'refresh' : 'download'" size="sm" :class="downloadingOne ? 'animate-spin' : ''" />
-                  {{ resultImages.length > 1 ? t('imageWorkbench.downloadCurrent') + ' #1' : t('imageWorkbench.download') }}
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- 右：最近生成（大屏唯一滚动区） -->
-        <section class="flex min-h-[240px] min-w-0 flex-col rounded-lg border border-gray-200 bg-white shadow-sm dark:border-dark-700 dark:bg-dark-800 lg:min-h-0 lg:overflow-hidden">
-          <div class="flex h-10 shrink-0 items-center justify-between border-b border-gray-200 px-3 dark:border-dark-700">
-            <h2 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('imageWorkbench.history') }}</h2>
-            <button v-if="history.length" type="button" class="btn btn-ghost px-1.5 py-1 text-[11px]" @click="clearHistory">
-              {{ t('imageWorkbench.clearHistory') }}
-            </button>
-          </div>
-          <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
-            <p v-if="!history.length" class="px-2 py-10 text-center text-xs text-gray-500 dark:text-gray-400">
-              {{ t('imageWorkbench.noHistory') }}
-            </p>
-            <div v-else class="space-y-2">
-              <article
-                v-for="record in history"
-                :key="record.id"
-                class="overflow-hidden rounded-lg border transition"
-                :class="record.id === activeTaskId
-                  ? 'border-gray-400 bg-gray-50 dark:border-dark-500 dark:bg-dark-700/60'
-                  : 'border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-800'"
-              >
-                <div class="grid grid-cols-[72px_minmax(0,1fr)]">
-                  <button type="button" class="flex h-full min-h-[72px] items-center justify-center bg-gray-100 dark:bg-dark-900" @click="selectRecord(record)">
-                    <img v-if="record.task.image_url" :src="record.task.image_url" :alt="record.prompt" class="h-full w-full object-cover" />
-                    <Icon
-                      v-else
-                      :name="record.task.status === 'failed' ? 'exclamationCircle' : 'clock'"
-                      size="md"
-                      :class="record.task.status === 'failed' ? 'text-red-400' : 'text-gray-400'"
-                    />
-                  </button>
-                  <div class="flex min-w-0 flex-col p-2">
-                    <button type="button" class="line-clamp-2 text-left text-xs font-medium leading-4 text-gray-900 dark:text-white" @click="selectRecord(record)">
-                      {{ record.prompt }}
-                    </button>
-                    <div class="mt-auto flex items-center justify-between gap-1 pt-1.5">
-                      <span class="truncate text-[10px] text-gray-400">{{ record.size }} · n={{ record.n || 1 }}</span>
-                      <button
-                        type="button"
-                        class="rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-red-500 dark:hover:bg-dark-700"
-                        :title="t('imageWorkbench.remove')"
-                        @click="removeRecord(record.id)"
-                      >
-                        <Icon name="trash" size="sm" />
-                      </button>
-                    </div>
-                  </div>
+              <div class="flex items-center justify-between gap-3 border-t border-gray-200 pt-2.5 dark:border-dark-700">
+                <div class="min-w-0">
+                  <span class="block text-xs font-medium text-gray-700 dark:text-gray-300">{{ t('imageWorkbench.transparentBackground') }}</span>
+                  <p class="mt-0.5 text-[10px] leading-4 text-gray-400">{{ t('imageWorkbench.transparentBackgroundHint') }}</p>
                 </div>
-              </article>
+                <Toggle v-model="transparentBackground" />
+              </div>
+
+              <p v-if="referenceImages.length" class="text-[11px] leading-4 text-gray-400">
+                {{ t('imageWorkbench.referenceHint', { n: maxImages }) }}
+              </p>
             </div>
+
+            <p v-if="submitError" class="mt-2 text-xs text-red-600 dark:text-red-400">{{ submitError }}</p>
           </div>
-        </section>
-      </div>
+        </form>
+      </section>
     </div>
 
-    <!-- 灯箱：点击放大，支持左右切换 / 下载当前 / 全部下载 -->
+    <!-- 灯箱 -->
     <Teleport to="body">
       <div
-        v-if="lightboxOpen && resultImages.length"
-        class="fixed inset-0 z-[100] flex flex-col bg-black/85 backdrop-blur-sm"
+        v-if="lightboxOpen && lightboxUrls.length"
+        class="fixed inset-0 z-[100] flex flex-col bg-black/90 backdrop-blur-sm"
         role="dialog"
         aria-modal="true"
         @click.self="closeLightbox"
       >
         <div class="flex shrink-0 items-center justify-between gap-3 px-4 py-3 text-white">
           <div class="min-w-0 text-sm">
-            <span class="font-medium">{{ t('imageWorkbench.imageOf', { current: lightboxIndex + 1, total: resultImages.length }) }}</span>
-            <span v-if="activeRecord?.prompt" class="ml-2 truncate text-white/60">{{ activeRecord.prompt }}</span>
+            <span class="font-medium">{{ t('imageWorkbench.imageOf', { current: lightboxIndex + 1, total: lightboxUrls.length }) }}</span>
+            <span v-if="lightboxPrompt" class="ml-2 truncate text-white/60">{{ lightboxPrompt }}</span>
           </div>
           <div class="flex shrink-0 items-center gap-2">
             <a
-              :href="resultImages[lightboxIndex]"
+              :href="lightboxUrls[lightboxIndex]"
               target="_blank"
               rel="noopener noreferrer"
               class="inline-flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium hover:bg-white/20"
@@ -388,20 +459,9 @@
               type="button"
               class="inline-flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium hover:bg-white/20"
               :disabled="downloadingOne"
-              @click="downloadImageAt(lightboxIndex)"
+              @click="downloadOne(lightboxUrls[lightboxIndex], lightboxIndex)"
             >
-              <Icon :name="downloadingOne ? 'refresh' : 'download'" size="sm" :class="downloadingOne ? 'animate-spin' : ''" />
-              {{ t('imageWorkbench.downloadCurrent') }}
-            </button>
-            <button
-              v-if="resultImages.length > 1"
-              type="button"
-              class="inline-flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium hover:bg-white/20"
-              :disabled="downloadingAll"
-              @click="downloadAllImages"
-            >
-              <Icon :name="downloadingAll ? 'refresh' : 'download'" size="sm" :class="downloadingAll ? 'animate-spin' : ''" />
-              {{ t('imageWorkbench.downloadAll') }}
+              <Icon name="download" size="sm" />{{ t('imageWorkbench.downloadCurrent') }}
             </button>
             <button
               type="button"
@@ -416,7 +476,7 @@
 
         <div class="relative flex min-h-0 flex-1 items-center justify-center px-12 pb-6">
           <button
-            v-if="resultImages.length > 1"
+            v-if="lightboxUrls.length > 1"
             type="button"
             class="absolute left-3 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/15 text-white hover:bg-white/25"
             :aria-label="t('imageWorkbench.prevImage')"
@@ -426,14 +486,14 @@
           </button>
 
           <img
-            :src="resultImages[lightboxIndex]"
-            :alt="`${activeRecord?.prompt || t('imageWorkbench.result')} #${lightboxIndex + 1}`"
+            :src="lightboxUrls[lightboxIndex]"
+            alt=""
             class="max-h-full max-w-full object-contain shadow-2xl"
             @click.stop
           />
 
           <button
-            v-if="resultImages.length > 1"
+            v-if="lightboxUrls.length > 1"
             type="button"
             class="absolute right-3 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/15 text-white hover:bg-white/25"
             :aria-label="t('imageWorkbench.nextImage')"
@@ -443,9 +503,9 @@
           </button>
         </div>
 
-        <div v-if="resultImages.length > 1" class="flex shrink-0 justify-center gap-2 overflow-x-auto px-4 pb-4">
+        <div v-if="lightboxUrls.length > 1" class="flex shrink-0 justify-center gap-2 overflow-x-auto px-4 pb-4">
           <button
-            v-for="(url, index) in resultImages"
+            v-for="(url, index) in lightboxUrls"
             :key="`thumb-${index}`"
             type="button"
             class="h-14 w-14 shrink-0 overflow-hidden rounded-md border-2 transition"
@@ -457,11 +517,31 @@
         </div>
       </div>
     </Teleport>
+
+    <!-- 确认弹窗 -->
+    <Teleport to="body">
+      <div
+        v-if="pendingConfirm"
+        class="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-4"
+        role="dialog"
+        aria-modal="true"
+        @click.self="pendingConfirm = null"
+      >
+        <div class="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl dark:bg-dark-800">
+          <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ pendingConfirm.title }}</h3>
+          <p class="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">{{ pendingConfirm.description }}</p>
+          <div class="mt-4 flex justify-end gap-2">
+            <button type="button" class="btn btn-secondary" @click="pendingConfirm = null">{{ t('imageWorkbench.cancel') }}</button>
+            <button type="button" class="btn btn-danger" @click="confirmPendingAction">{{ t('imageWorkbench.confirmDelete') }}</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </AppLayout>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -469,20 +549,41 @@ import Toggle from '@/components/common/Toggle.vue'
 import {
   collectImageWorkbenchURLs,
   getImageWorkbenchConfig,
+  getImageWorkbenchModels,
   getImageWorkbenchTask,
   submitImageWorkbenchTask,
   type ImageWorkbenchConfig,
   type ImageWorkbenchTask,
+  type ImageWorkbenchTaskStatus,
 } from '@/api/imageWorkbench'
 
-interface HistoryRecord {
+interface StoredReference {
+  name: string
+  dataUrl: string
+}
+
+interface Turn {
   id: string
   prompt: string
+  model: string
   size: string
   quality: string
-  background?: string
+  background?: 'transparent'
   n: number
-  task: ImageWorkbenchTask
+  mode: 'generate' | 'edit'
+  referenceImages: StoredReference[]
+  taskId?: string
+  status: ImageWorkbenchTaskStatus
+  urls: string[]
+  error?: string
+  createdAt: number
+}
+
+interface Conversation {
+  id: string
+  title: string
+  turns: Turn[]
+  updatedAt: number
 }
 
 interface AspectOption {
@@ -495,22 +596,50 @@ interface AspectOption {
 
 interface ReferenceImageItem {
   id: string
+  name: string
   file: File
-  previewUrl: string
+  dataUrl: string
 }
 
-const STORAGE_KEY = 'sub2api_image_workbench_history_v1'
+interface PendingConfirm {
+  title: string
+  description: string
+  run: () => void
+}
+
+const STORAGE_KEY = 'sub2api_image_studio_conversations_v1'
+const SETTINGS_KEY = 'sub2api_image_studio_settings_v1'
 const POLL_MS = 3000
 const MIN_DIM = 256
 const MAX_DIM = 4096
 const DEFAULT_MAX_IMAGES = 4
+const MAX_CONVERSATIONS = 30
+
 const { t } = useI18n()
 
 const config = ref<ImageWorkbenchConfig | null>(null)
 const configError = ref('')
 const submitError = ref('')
-const submitting = ref(false)
+const ready = computed(() => Boolean(config.value?.ready))
+const DEFAULT_IMAGE_MODELS = ['gpt-image-2', 'codex-gpt-image-2']
+const availableModels = ref<string[]>([...DEFAULT_IMAGE_MODELS])
+
+/**
+ * Merge upstream catalogs into the picker, keeping the upstream ordering first
+ * and never dropping an already-selected model. Older chatgpt2api builds and
+ * the built-in fallback both feed through here.
+ */
+function mergeAvailableModels(models: string[]) {
+  const merged: string[] = []
+  for (const item of [...models, ...availableModels.value, ...DEFAULT_IMAGE_MODELS, model.value]) {
+    const value = (item || '').trim()
+    if (value && !merged.includes(value)) merged.push(value)
+  }
+  availableModels.value = merged
+}
+
 const prompt = ref('')
+const model = ref('gpt-image-2')
 const size = ref('1024x1024')
 const quality = ref('auto')
 const count = ref(1)
@@ -518,16 +647,26 @@ const customWidth = ref('1024')
 const customHeight = ref('1024')
 const alignTo16 = ref(true)
 const transparentBackground = ref(false)
-const settingsOpen = ref(true)
-const history = ref<HistoryRecord[]>([])
-const activeTaskId = ref('')
-const lightboxOpen = ref(false)
-const lightboxIndex = ref(0)
-const downloadingOne = ref(false)
-const downloadingAll = ref(false)
+const settingsOpen = ref(false)
+const submitting = ref(false)
+
+const conversations = ref<Conversation[]>([])
+const activeConversationId = ref('')
+const mobileListOpen = ref(false)
 const referenceImages = ref<ReferenceImageItem[]>([])
 const isDraggingReference = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
+const textareaRef = ref<HTMLTextAreaElement | null>(null)
+const scrollEl = ref<HTMLElement | null>(null)
+const pendingConfirm = ref<PendingConfirm | null>(null)
+
+const lightboxUrls = ref<string[]>([])
+const lightboxPrompt = ref('')
+const lightboxIndex = ref(0)
+const lightboxOpen = ref(false)
+const downloadingOne = ref(false)
+const downloadingAll = ref(false)
+
 const pollTimers = new Map<string, number>()
 
 const aspectOptions: AspectOption[] = [
@@ -548,10 +687,16 @@ const aspectOptions: AspectOption[] = [
 const qualityOptions = ['auto', 'low', 'medium', 'high'] as const
 const countOptions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
-const activeRecord = computed(() => history.value.find((item) => item.id === activeTaskId.value) || null)
-const activeTask = computed(() => activeRecord.value?.task || null)
-const resultImages = computed(() => collectImageWorkbenchURLs(activeTask.value))
-const modelLabel = computed(() => config.value?.models?.[0] || 'gpt-image-2')
+const activeConversation = computed(() =>
+  conversations.value.find((item) => item.id === activeConversationId.value) || null
+)
+const activeTurns = computed(() => activeConversation.value?.turns || [])
+const processingCount = computed(() =>
+  conversations.value.reduce(
+    (total, conversation) => total + conversation.turns.filter((turn) => turn.status === 'processing').length,
+    0
+  )
+)
 const maxN = computed(() => Math.min(10, Math.max(1, config.value?.max_n || 10)))
 const maxImages = computed(() => Math.min(10, Math.max(1, config.value?.max_images || DEFAULT_MAX_IMAGES)))
 const isEditMode = computed(() => referenceImages.value.length > 0)
@@ -559,29 +704,394 @@ const settingsSummary = computed(() => {
   const qualityLabel = t(`imageWorkbench.qualityLabels.${quality.value}` as 'imageWorkbench.qualityLabels.auto')
   const sizeLabel = size.value === 'auto' ? 'auto' : size.value
   const base = t('imageWorkbench.settingsSummary', { quality: qualityLabel, size: sizeLabel, count: count.value })
-  const mode = isEditMode.value ? `${base} · edit` : base
-  return transparentBackground.value ? `${mode} · ${t('imageWorkbench.transparentBackground')}` : mode
-})
-const resultGridClass = computed(() => {
-  const n = resultImages.value.length
-  if (n <= 1) return 'grid-cols-1'
-  if (n === 2) return 'grid-cols-2'
-  if (n <= 4) return 'grid-cols-2'
-  return 'grid-cols-2 sm:grid-cols-3'
+  return isEditMode.value ? `${base} · ${t('imageWorkbench.modeEdit')}` : base
 })
 
-watch(resultImages, () => {
-  if (lightboxIndex.value >= resultImages.value.length) {
-    lightboxIndex.value = Math.max(0, resultImages.value.length - 1)
+function resultGridClass(total: number): string {
+  if (total <= 1) return 'grid-cols-1'
+  if (total === 2) return 'grid-cols-1 sm:grid-cols-2'
+  return 'grid-cols-2 sm:grid-cols-3'
+}
+
+function createId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function buildTitle(text: string): string {
+  const trimmed = text.trim()
+  return trimmed.length <= 24 ? trimmed : `${trimmed.slice(0, 24)}…`
+}
+
+function formatTime(value: number): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat(undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(date)
+}
+
+/* ---------------------------------- 持久化 ---------------------------------- */
+
+function persist() {
+  try {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(conversations.value.slice(0, MAX_CONVERSATIONS))
+    )
+  } catch {
+    // localStorage may be unavailable; ignore.
   }
-})
+}
+
+function persistSettings() {
+  try {
+    localStorage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({
+        model: model.value,
+        size: size.value,
+        quality: quality.value,
+        count: count.value,
+        customWidth: customWidth.value,
+        customHeight: customHeight.value,
+        alignTo16: alignTo16.value,
+        transparentBackground: transparentBackground.value,
+      })
+    )
+  } catch {
+    // ignore
+  }
+}
+
+function restoreSettings() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null') as Record<string, unknown> | null
+    if (!parsed || typeof parsed !== 'object') return
+    if (typeof parsed.model === 'string' && parsed.model) model.value = parsed.model
+    if (typeof parsed.size === 'string' && parsed.size) size.value = parsed.size
+    if (typeof parsed.quality === 'string') quality.value = parsed.quality
+    if (typeof parsed.count === 'number') count.value = clampCount(parsed.count)
+    if (typeof parsed.customWidth === 'string') customWidth.value = parsed.customWidth
+    if (typeof parsed.customHeight === 'string') customHeight.value = parsed.customHeight
+    if (typeof parsed.alignTo16 === 'boolean') alignTo16.value = parsed.alignTo16
+    if (typeof parsed.transparentBackground === 'boolean') transparentBackground.value = parsed.transparentBackground
+  } catch {
+    // ignore malformed settings
+  }
+}
+
+function restoreConversations() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
+    if (!Array.isArray(parsed)) return
+    conversations.value = parsed
+      .filter((item): item is Conversation => Boolean(item) && typeof item === 'object' && Array.isArray(item.turns))
+      .slice(0, MAX_CONVERSATIONS)
+      .map((conversation) => ({
+        ...conversation,
+        turns: conversation.turns.map((turn) => ({ ...turn, urls: Array.isArray(turn.urls) ? turn.urls : [] })),
+      }))
+  } catch {
+    conversations.value = []
+  }
+  activeConversationId.value = conversations.value[0]?.id || ''
+}
+
+/* ---------------------------------- 会话操作 ---------------------------------- */
+
+function newConversation() {
+  const conversation: Conversation = { id: createId(), title: t('imageWorkbench.newConversation'), turns: [], updatedAt: Date.now() }
+  conversations.value.unshift(conversation)
+  activeConversationId.value = conversation.id
+  mobileListOpen.value = false
+  submitError.value = ''
+  persist()
+  nextTick(() => textareaRef.value?.focus())
+}
+
+function selectConversation(id: string) {
+  activeConversationId.value = id
+  mobileListOpen.value = false
+}
+
+function removeConversation(id: string) {
+  clearTimersOfConversation(id)
+  conversations.value = conversations.value.filter((item) => item.id !== id)
+  if (activeConversationId.value === id) {
+    activeConversationId.value = conversations.value[0]?.id || ''
+  }
+  persist()
+}
+
+function clearAllConversations() {
+  pollTimers.forEach((timer) => window.clearTimeout(timer))
+  pollTimers.clear()
+  conversations.value = []
+  activeConversationId.value = ''
+  persist()
+}
+
+function clearActiveConversation() {
+  const conversation = activeConversation.value
+  if (!conversation) return
+  conversation.turns.forEach((turn) => clearTimerOfTurn(turn))
+  conversation.turns = []
+  conversation.updatedAt = Date.now()
+  persist()
+}
+
+function removeTurn(turnId: string) {
+  const conversation = activeConversation.value
+  if (!conversation) return
+  const turn = conversation.turns.find((item) => item.id === turnId)
+  if (turn) clearTimerOfTurn(turn)
+  conversation.turns = conversation.turns.filter((item) => item.id !== turnId)
+  conversation.updatedAt = Date.now()
+  persist()
+}
+
+function ensureActiveConversation(): Conversation {
+  const existing = activeConversation.value
+  if (existing) return existing
+  const conversation: Conversation = { id: createId(), title: t('imageWorkbench.newConversation'), turns: [], updatedAt: Date.now() }
+  conversations.value.unshift(conversation)
+  activeConversationId.value = conversation.id
+  return conversation
+}
+
+/* ------------------------------------ 轮询 ------------------------------------ */
+
+function clearTimerOfTurn(turn: Turn) {
+  if (!turn.taskId) return
+  const timer = pollTimers.get(turn.taskId)
+  if (timer) window.clearTimeout(timer)
+  pollTimers.delete(turn.taskId)
+}
+
+function clearTimersOfConversation(conversationId: string) {
+  const conversation = conversations.value.find((item) => item.id === conversationId)
+  conversation?.turns.forEach((turn) => clearTimerOfTurn(turn))
+}
+
+function findTurnByTaskId(taskId: string): { conversation: Conversation; turn: Turn } | null {
+  for (const conversation of conversations.value) {
+    const turn = conversation.turns.find((item) => item.taskId === taskId)
+    if (turn) return { conversation, turn }
+  }
+  return null
+}
+
+function applyTaskToTurn(turn: Turn, task: ImageWorkbenchTask) {
+  turn.taskId = task.id
+  turn.status = task.status
+  if (task.status === 'completed') {
+    turn.urls = collectImageWorkbenchURLs(task)
+    turn.error = undefined
+  } else if (task.status === 'failed') {
+    turn.urls = []
+    turn.error = taskError(task)
+  }
+}
+
+function schedulePoll(taskId: string, delay = POLL_MS) {
+  const existing = pollTimers.get(taskId)
+  if (existing) window.clearTimeout(existing)
+  pollTimers.set(taskId, window.setTimeout(() => void poll(taskId), delay))
+}
+
+async function poll(taskId: string) {
+  pollTimers.delete(taskId)
+  const found = findTurnByTaskId(taskId)
+  if (!found || found.turn.status !== 'processing') return
+  try {
+    const task = await getImageWorkbenchTask(taskId)
+    applyTaskToTurn(found.turn, task)
+    found.conversation.updatedAt = Date.now()
+    persist()
+    if (task.status === 'processing') schedulePoll(taskId)
+  } catch (error: any) {
+    if (error?.status === 404) {
+      found.turn.status = 'failed'
+      found.turn.error = t('imageWorkbench.taskFailed')
+      persist()
+      return
+    }
+    schedulePoll(taskId, 5000)
+  }
+}
+
+function taskError(task: ImageWorkbenchTask): string {
+  if (typeof task.error === 'string') return task.error
+  return task.error?.message || t('imageWorkbench.taskFailed')
+}
+
+/* ------------------------------------ 发送 ------------------------------------ */
+
+function alignImageDimension(value: number): number {
+  const integer = Math.floor(value)
+  return alignTo16.value ? Math.ceil(integer / 16) * 16 : integer
+}
+
+function clampCount(value: number): number {
+  if (!Number.isFinite(value)) return 1
+  return Math.min(maxN.value, Math.max(1, Math.floor(value)))
+}
+
+function applyCustomSize() {
+  const w = Number(customWidth.value)
+  const h = Number(customHeight.value)
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w < MIN_DIM || h < MIN_DIM || w > MAX_DIM || h > MAX_DIM) {
+    return
+  }
+  const nextWidth = alignImageDimension(w)
+  const nextHeight = alignImageDimension(h)
+  size.value = `${nextWidth}x${nextHeight}`
+  customWidth.value = String(nextWidth)
+  customHeight.value = String(nextHeight)
+}
+
+function selectAspect(option: AspectOption) {
+  size.value = option.value
+  if (option.value !== 'auto') {
+    customWidth.value = option.width
+    customHeight.value = option.height
+  }
+}
+
+function validateSize(): boolean {
+  if (size.value === 'auto') return true
+  const match = size.value.match(/^(\d+)x(\d+)$/)
+  if (!match) {
+    submitError.value = t('imageWorkbench.invalidSize')
+    return false
+  }
+  const w = Number(match[1])
+  const h = Number(match[2])
+  if (w < MIN_DIM || h < MIN_DIM || w > MAX_DIM || h > MAX_DIM) {
+    submitError.value = t('imageWorkbench.invalidSize')
+    return false
+  }
+  return true
+}
+
+function buildTurn(text: string, files: File[], references: StoredReference[]): Turn {
+  return {
+    id: createId(),
+    prompt: text,
+    model: model.value,
+    size: size.value,
+    quality: quality.value,
+    background: transparentBackground.value ? 'transparent' : undefined,
+    n: clampCount(count.value),
+    mode: files.length ? 'edit' : 'generate',
+    referenceImages: references,
+    status: 'processing',
+    urls: [],
+    createdAt: Date.now(),
+  }
+}
+
+async function runTurn(conversation: Conversation, turn: Turn, files: File[]) {
+  conversation.updatedAt = Date.now()
+  persist()
+  try {
+    const task = await submitImageWorkbenchTask({
+      prompt: turn.prompt,
+      model: turn.model,
+      size: turn.size,
+      quality: turn.quality,
+      background: turn.background,
+      n: turn.n,
+      images: files,
+    })
+    applyTaskToTurn(turn, task)
+    conversation.updatedAt = Date.now()
+    persist()
+    if (task.status === 'processing') schedulePoll(task.id)
+  } catch (error: any) {
+    const message: string = error?.message || t('imageWorkbench.taskFailed')
+    turn.status = 'failed'
+    turn.error = message
+    submitError.value = message
+    persist()
+  }
+}
+
+async function send() {
+  if (submitting.value || !ready.value) return
+  const text = prompt.value.trim()
+  if (!text) {
+    submitError.value = t('imageWorkbench.promptRequired')
+    return
+  }
+  if (!validateSize()) return
+
+  const files = referenceImages.value.map((item) => item.file)
+  const references = referenceImages.value.map((item) => ({ name: item.name, dataUrl: item.dataUrl }))
+
+  const conversation = ensureActiveConversation()
+  const turn = buildTurn(text, files, references)
+  conversation.turns.push(turn)
+  conversation.title = conversation.turns.length === 1 ? buildTitle(text) : conversation.title
+
+  clearComposerInputs()
+  submitError.value = ''
+  submitting.value = true
+  scrollToLatest()
+  try {
+    await runTurn(conversation, turn, files)
+  } finally {
+    submitting.value = false
+    scrollToLatest()
+  }
+}
+
+async function regenerate(turn: Turn) {
+  const conversation = activeConversation.value
+  if (!conversation || submitting.value) return
+  const files = await Promise.all(
+    turn.referenceImages.map((reference) => dataUrlToFile(reference.dataUrl, reference.name))
+  )
+  const next: Turn = { ...turn, id: createId(), taskId: undefined, status: 'processing', urls: [], error: undefined, createdAt: Date.now() }
+  conversation.turns.push(next)
+  conversation.updatedAt = Date.now()
+  submitting.value = true
+  scrollToLatest()
+  try {
+    await runTurn(conversation, next, files)
+  } finally {
+    submitting.value = false
+    scrollToLatest()
+  }
+}
+
+/* ------------------------------- 参考图与继续编辑 ------------------------------- */
+
+function clearComposerInputs() {
+  referenceImages.value = []
+  if (fileInputRef.value) fileInputRef.value.value = ''
+}
 
 function isImageFile(file: File): boolean {
-  if (file.type.startsWith('image/')) {
-    return ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'].includes(file.type)
-      || file.type === 'image/jpg'
-  }
+  if (file.type) return ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'].includes(file.type)
   return /\.(png|jpe?g|webp|gif)$/i.test(file.name)
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(reader.error || new Error('read failed'))
+    reader.readAsDataURL(file)
+  })
+}
+
+function dataUrlToFile(dataUrl: string, fileName: string): File {
+  const [header, content] = dataUrl.split(',', 2)
+  const mimeType = header.match(/data:(.*?);base64/)?.[1] || 'image/png'
+  const binary = atob(content || '')
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+  return new File([bytes], fileName, { type: mimeType })
 }
 
 function pickReferenceImages() {
@@ -605,29 +1115,57 @@ async function addReferenceFiles(files: File[]) {
     submitError.value = t('imageWorkbench.tooManyReferences', { n: maxImages.value })
     return
   }
-  if (imageFiles.length > room) {
-    submitError.value = t('imageWorkbench.tooManyReferences', { n: maxImages.value })
-  } else {
-    submitError.value = ''
-  }
+  submitError.value = imageFiles.length > room ? t('imageWorkbench.tooManyReferences', { n: maxImages.value }) : ''
   const accepted = imageFiles.slice(0, room)
-  const next: ReferenceImageItem[] = accepted.map((file) => ({
-    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    file,
-    previewUrl: URL.createObjectURL(file),
-  }))
+  const next = await Promise.all(
+    accepted.map(async (file) => ({
+      id: createId(),
+      name: file.name || 'reference.png',
+      file,
+      dataUrl: await readFileAsDataUrl(file),
+    }))
+  )
   referenceImages.value = [...referenceImages.value, ...next]
 }
 
 function removeReferenceImage(index: number) {
-  const item = referenceImages.value[index]
-  if (item) URL.revokeObjectURL(item.previewUrl)
-  referenceImages.value = referenceImages.value.filter((_, i) => i !== index)
+  referenceImages.value = referenceImages.value.filter((_, current) => current !== index)
 }
 
-function clearReferenceImages() {
-  referenceImages.value.forEach((item) => URL.revokeObjectURL(item.previewUrl))
-  referenceImages.value = []
+async function continueEdit(turn: Turn) {
+  const url = turn.urls[0]
+  if (!url) return
+  if (referenceImages.value.length >= maxImages.value) {
+    submitError.value = t('imageWorkbench.tooManyReferences', { n: maxImages.value })
+    return
+  }
+  try {
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const blob = await response.blob()
+    const name = `result-${Date.now()}.png`
+    const file = new File([blob], name, { type: blob.type || 'image/png' })
+    referenceImages.value = [
+      ...referenceImages.value,
+      { id: createId(), name, file, dataUrl: await readFileAsDataUrl(file) },
+    ]
+    prompt.value = ''
+    submitError.value = ''
+    nextTick(() => textareaRef.value?.focus())
+  } catch {
+    submitError.value = t('imageWorkbench.downloadFailed')
+  }
+}
+
+/* --------------------------------- 拖拽 / 粘贴 --------------------------------- */
+
+function hasDraggedImages(dataTransfer: DataTransfer | null): boolean {
+  if (!dataTransfer) return false
+  const items = Array.from(dataTransfer.items || [])
+  if (items.length) {
+    return items.some((item) => item.kind === 'file' && (item.type.startsWith('image/') || !item.type))
+  }
+  return Array.from(dataTransfer.files || []).some(isImageFile)
 }
 
 function onReferenceDragEnter(event: DragEvent) {
@@ -649,17 +1187,7 @@ function onReferenceDragLeave(event: DragEvent) {
 
 function onReferenceDrop(event: DragEvent) {
   isDraggingReference.value = false
-  const files = Array.from(event.dataTransfer?.files || []).filter(isImageFile)
-  void addReferenceFiles(files)
-}
-
-function hasDraggedImages(dataTransfer: DataTransfer | null): boolean {
-  if (!dataTransfer) return false
-  const items = Array.from(dataTransfer.items || [])
-  if (items.length) {
-    return items.some((item) => item.kind === 'file' && (item.type.startsWith('image/') || !item.type))
-  }
-  return Array.from(dataTransfer.files || []).some(isImageFile)
+  void addReferenceFiles(Array.from(event.dataTransfer?.files || []).filter(isImageFile))
 }
 
 function onPromptPaste(event: ClipboardEvent) {
@@ -669,192 +1197,12 @@ function onPromptPaste(event: ClipboardEvent) {
   void addReferenceFiles(files)
 }
 
-function selectAspect(option: AspectOption) {
-  size.value = option.value
-  if (option.value !== 'auto') {
-    customWidth.value = option.width
-    customHeight.value = option.height
-  }
-}
+/* ------------------------------------ 灯箱 ------------------------------------ */
 
-function applyCustomSize() {
-  const w = Number(customWidth.value)
-  const h = Number(customHeight.value)
-  if (!Number.isFinite(w) || !Number.isFinite(h) || w < MIN_DIM || h < MIN_DIM || w > MAX_DIM || h > MAX_DIM) {
-    return
-  }
-  const nextWidth = alignImageDimension(w)
-  const nextHeight = alignImageDimension(h)
-  size.value = `${nextWidth}x${nextHeight}`
-  customWidth.value = String(nextWidth)
-  customHeight.value = String(nextHeight)
-}
-
-function alignImageDimension(value: number): number {
-  const integer = Math.floor(value)
-  return alignTo16.value ? Math.ceil(integer / 16) * 16 : integer
-}
-
-function clampCount(value: number): number {
-  if (!Number.isFinite(value)) return 1
-  return Math.min(maxN.value, Math.max(1, Math.floor(value)))
-}
-
-function persist() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(history.value.slice(0, 24)))
-}
-
-function restore() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
-    if (Array.isArray(parsed)) {
-      history.value = parsed.slice(0, 24).map((item: HistoryRecord) => ({
-        ...item,
-        n: item.n || 1,
-      }))
-    }
-  } catch {
-    history.value = []
-  }
-  activeTaskId.value = history.value[0]?.id || ''
-  const latest = history.value[0]
-  if (latest) {
-    prompt.value = latest.prompt
-    size.value = latest.size
-    quality.value = latest.quality
-    transparentBackground.value = latest.background === 'transparent'
-    count.value = latest.n || 1
-    syncCustomFromSize(latest.size)
-  }
-}
-
-function syncCustomFromSize(value: string) {
-  if (value === 'auto') return
-  const match = value.match(/^(\d+)x(\d+)$/)
-  if (match) {
-    customWidth.value = match[1]
-    customHeight.value = match[2]
-  }
-}
-
-function upsert(record: HistoryRecord) {
-  history.value = [record, ...history.value.filter((item) => item.id !== record.id)].slice(0, 24)
-  persist()
-}
-
-async function generate() {
-  if (!prompt.value.trim()) {
-    submitError.value = t('imageWorkbench.promptRequired')
-    return
-  }
-  if (size.value !== 'auto') {
-    const match = size.value.match(/^(\d+)x(\d+)$/)
-    if (!match) {
-      submitError.value = t('imageWorkbench.invalidSize')
-      return
-    }
-    const w = Number(match[1])
-    const h = Number(match[2])
-    if (w < MIN_DIM || h < MIN_DIM || w > MAX_DIM || h > MAX_DIM) {
-      submitError.value = t('imageWorkbench.invalidSize')
-      return
-    }
-  }
-  const n = clampCount(count.value)
-  count.value = n
-  submitError.value = ''
-  submitting.value = true
-  try {
-    const task = await submitImageWorkbenchTask({
-      prompt: prompt.value.trim(),
-      size: size.value,
-      quality: quality.value,
-      background: transparentBackground.value ? 'transparent' : undefined,
-      n,
-      images: referenceImages.value.map((item) => item.file),
-    })
-    const record: HistoryRecord = {
-      id: task.id,
-      prompt: prompt.value.trim(),
-      size: size.value,
-      quality: quality.value,
-      background: transparentBackground.value ? 'transparent' : undefined,
-      n,
-      task,
-    }
-    upsert(record)
-    activeTaskId.value = task.id
-    // Keep prompt for iteration, but clear references like chatgpt2api after send.
-    clearReferenceImages()
-    closeLightbox()
-    schedulePoll(task.id, 0)
-  } catch (error: any) {
-    submitError.value = error?.message || t('imageWorkbench.taskFailed')
-  } finally {
-    submitting.value = false
-  }
-}
-
-function schedulePoll(taskId: string, delay = POLL_MS) {
-  if (pollTimers.has(taskId)) window.clearTimeout(pollTimers.get(taskId))
-  const timer = window.setTimeout(() => poll(taskId), delay)
-  pollTimers.set(taskId, timer)
-}
-
-async function poll(taskId: string) {
-  pollTimers.delete(taskId)
-  const record = history.value.find((item) => item.id === taskId)
-  if (!record || record.task.status !== 'processing') return
-  try {
-    const task = await getImageWorkbenchTask(taskId)
-    upsert({ ...record, task })
-    if (task.status === 'processing') schedulePoll(taskId)
-  } catch (error: any) {
-    if (error?.status === 404) {
-      removeRecord(taskId)
-      return
-    }
-    schedulePoll(taskId, 5000)
-  }
-}
-
-function selectRecord(record: HistoryRecord) {
-  activeTaskId.value = record.id
-  prompt.value = record.prompt
-  size.value = record.size
-  quality.value = record.quality
-  transparentBackground.value = record.background === 'transparent'
-  count.value = record.n || 1
-  syncCustomFromSize(record.size)
-  closeLightbox()
-}
-
-function removeRecord(id: string) {
-  const timer = pollTimers.get(id)
-  if (timer) window.clearTimeout(timer)
-  pollTimers.delete(id)
-  history.value = history.value.filter((item) => item.id !== id)
-  if (activeTaskId.value === id) activeTaskId.value = history.value[0]?.id || ''
-  if (!history.value.some((item) => item.id === activeTaskId.value)) closeLightbox()
-  persist()
-}
-
-function clearHistory() {
-  pollTimers.forEach((timer) => window.clearTimeout(timer))
-  pollTimers.clear()
-  history.value = []
-  activeTaskId.value = ''
-  closeLightbox()
-  persist()
-}
-
-function taskError(task: ImageWorkbenchTask): string {
-  if (typeof task.error === 'string') return task.error
-  return task.error?.message || t('imageWorkbench.taskFailed')
-}
-
-function openLightbox(index: number) {
-  lightboxIndex.value = index
+function openLightbox(turn: Turn, index: number) {
+  lightboxUrls.value = [...turn.urls]
+  lightboxPrompt.value = turn.prompt
+  lightboxIndex.value = Math.max(0, Math.min(index, lightboxUrls.value.length - 1))
   lightboxOpen.value = true
 }
 
@@ -863,14 +1211,15 @@ function closeLightbox() {
 }
 
 function stepLightbox(delta: number) {
-  const total = resultImages.value.length
+  const total = lightboxUrls.value.length
   if (total <= 0) return
   lightboxIndex.value = (lightboxIndex.value + delta + total) % total
 }
 
+/* ------------------------------------ 下载 ------------------------------------ */
+
 function filenameFor(index: number): string {
-  const base = (activeRecord.value?.id || 'image').replace(/[^\w-]+/g, '_')
-  return `${base}-${index + 1}.png`
+  return `sub2api-image-${Date.now()}-${index + 1}.png`
 }
 
 async function fetchAsBlob(url: string): Promise<Blob> {
@@ -891,16 +1240,13 @@ function triggerBlobDownload(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
 }
 
-async function downloadImageAt(index: number) {
-  const url = resultImages.value[index]
+async function downloadOne(url: string, index: number) {
   if (!url) return
   downloadingOne.value = true
   try {
     try {
-      const blob = await fetchAsBlob(url)
-      triggerBlobDownload(blob, filenameFor(index))
+      triggerBlobDownload(await fetchAsBlob(url), filenameFor(index))
     } catch {
-      // Cross-origin without CORS: fall back to opening the URL.
       window.open(url, '_blank', 'noopener,noreferrer')
     }
   } finally {
@@ -908,25 +1254,89 @@ async function downloadImageAt(index: number) {
   }
 }
 
-async function downloadAllImages() {
-  if (!resultImages.value.length) return
+async function downloadAll(turn: Turn) {
+  if (!turn.urls.length) return
   downloadingAll.value = true
   try {
-    for (let i = 0; i < resultImages.value.length; i += 1) {
-      const url = resultImages.value[i]
+    for (let index = 0; index < turn.urls.length; index += 1) {
+      const url = turn.urls[index]
       try {
-        const blob = await fetchAsBlob(url)
-        triggerBlobDownload(blob, filenameFor(i))
+        triggerBlobDownload(await fetchAsBlob(url), filenameFor(index))
       } catch {
         window.open(url, '_blank', 'noopener,noreferrer')
       }
-      // Small gap so browsers don't coalesce multi-download clicks.
       await new Promise((resolve) => window.setTimeout(resolve, 250))
     }
   } finally {
     downloadingAll.value = false
   }
 }
+
+/* ------------------------------------ 确认弹窗 ----------------------------------- */
+
+const confirmClearConversations = ref(false)
+const confirmClearConversation = ref(false)
+
+function confirmPendingAction() {
+  const pending = pendingConfirm.value
+  pendingConfirm.value = null
+  pending?.run()
+}
+
+watch(
+  () => confirmClearConversations.value,
+  (value) => {
+    if (!value) return
+    confirmClearConversations.value = false
+    pendingConfirm.value = {
+      title: t('imageWorkbench.clearConversations'),
+      description: t('imageWorkbench.confirmClearConversations'),
+      run: clearAllConversations,
+    }
+  }
+)
+
+watch(
+  () => confirmClearConversation.value,
+  (value) => {
+    if (!value) return
+    confirmClearConversation.value = false
+    pendingConfirm.value = {
+      title: t('imageWorkbench.clearConversation'),
+      description: t('imageWorkbench.confirmClearConversation'),
+      run: clearActiveConversation,
+    }
+  }
+)
+
+/* ------------------------------------ 滚动 ------------------------------------ */
+
+function scrollToLatest() {
+  nextTick(() => {
+    if (scrollEl.value) scrollEl.value.scrollTop = scrollEl.value.scrollHeight
+  })
+}
+
+watch(
+  () => activeConversationId.value,
+  () => scrollToLatest()
+)
+
+watch(
+  [model, size, quality, count, customWidth, customHeight, alignTo16, transparentBackground],
+  persistSettings
+)
+
+watch(
+  () => lightboxUrls.value.length,
+  () => {
+    if (lightboxIndex.value >= lightboxUrls.value.length) {
+      lightboxIndex.value = Math.max(0, lightboxUrls.value.length - 1)
+    }
+  }
+)
+
+/* ------------------------------------ 生命周期 ----------------------------------- */
 
 function onKeydown(event: KeyboardEvent) {
   if (!lightboxOpen.value) return
@@ -943,21 +1353,39 @@ function onKeydown(event: KeyboardEvent) {
 }
 
 onMounted(async () => {
-  restore()
-  history.value.filter((item) => item.task.status === 'processing').forEach((item) => schedulePoll(item.id, 0))
+  restoreSettings()
+  restoreConversations()
+  if (!conversations.value.length) newConversation()
   window.addEventListener('keydown', onKeydown)
+
   try {
     config.value = await getImageWorkbenchConfig()
+    if (config.value.models?.length) mergeAvailableModels(config.value.models)
   } catch (error: any) {
     configError.value = error?.status === 503 || error?.code === 'IMAGE_WORKBENCH_UNAVAILABLE'
       ? t('imageWorkbench.unavailable')
       : t('imageWorkbench.configFailed')
   }
+
+  try {
+    const result = await getImageWorkbenchModels()
+    if (result.models?.length) mergeAvailableModels(result.models)
+    if (result.source === 'fallback') configError.value = configError.value || t('imageWorkbench.modelsFallback')
+  } catch {
+    configError.value = configError.value || t('imageWorkbench.modelsUnavailable')
+  }
+  mergeAvailableModels([model.value])
+
+  conversations.value
+    .flatMap((conversation) => conversation.turns)
+    .filter((turn) => turn.status === 'processing' && turn.taskId)
+    .forEach((turn) => schedulePoll(turn.taskId!, 0))
+
+  scrollToLatest()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
-  clearReferenceImages()
   pollTimers.forEach((timer) => window.clearTimeout(timer))
   pollTimers.clear()
 })

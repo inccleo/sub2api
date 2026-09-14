@@ -4,10 +4,20 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
 	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/google/wire"
 )
+
+// ProvideImageWorkbenchHandler wires both the legacy async image APIs and the
+// image-chat BFF.
+func ProvideImageWorkbenchHandler(apiKeys *service.APIKeyService, auth middleware.APIKeyAuthMiddleware, async *AsyncImageHandler, cfg *config.Config, accounts service.AccountRepository) *ImageWorkbenchHandler {
+	h := NewImageWorkbenchHandler(apiKeys, auth, async)
+	h.SetImageChatConfig(cfg)
+	h.SetUpstreamResolver(newAccountImageWorkbenchUpstreamResolver(accounts))
+	return h
+}
 
 // ProvideAdminHandlers creates the AdminHandlers struct
 func ProvideAdminHandlers(
@@ -176,6 +186,7 @@ func ProvideAdminSettingHandler(settingService *service.SettingService, emailSer
 // ProvideHandlers creates the Handlers struct
 func ProvideHandlers(
 	authHandler *AuthHandler,
+	desktopAuthHandler *DesktopAuthHandler,
 	userHandler *UserHandler,
 	apiKeyHandler *APIKeyHandler,
 	usageHandler *UsageHandler,
@@ -203,6 +214,7 @@ func ProvideHandlers(
 	_ *service.OpenAIQuotaAutoResetService,
 ) *Handlers {
 	return &Handlers{
+		DesktopAuth:      desktopAuthHandler,
 		Auth:             authHandler,
 		User:             userHandler,
 		APIKey:           apiKeyHandler,
@@ -233,6 +245,7 @@ func ProvideHandlers(
 var ProviderSet = wire.NewSet(
 	// Top-level handlers
 	NewAuthHandler,
+	NewDesktopAuthHandler,
 	NewUserHandler,
 	NewAPIKeyHandler,
 	NewUsageHandler,
@@ -252,7 +265,7 @@ var ProviderSet = wire.NewSet(
 	NewAvailableChannelHandler,
 	NewModelPlazaHandler,
 	NewAsyncImageHandler,
-	NewImageWorkbenchHandler,
+	ProvideImageWorkbenchHandler,
 	ProvideBatchImageHandler,
 
 	// Admin handlers

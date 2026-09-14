@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"context"
+
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
 	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
@@ -13,9 +15,18 @@ import (
 // ProvideImageWorkbenchHandler wires both the legacy async image APIs and the
 // image-chat BFF.
 func ProvideImageWorkbenchHandler(apiKeys *service.APIKeyService, auth middleware.APIKeyAuthMiddleware, async *AsyncImageHandler, cfg *config.Config, accounts service.AccountRepository) *ImageWorkbenchHandler {
+	resolver := newAccountImageWorkbenchUpstreamResolver(accounts)
 	h := NewImageWorkbenchHandler(apiKeys, auth, async)
 	h.SetImageChatConfig(cfg)
-	h.SetUpstreamResolver(newAccountImageWorkbenchUpstreamResolver(accounts))
+	h.SetUpstreamResolver(resolver)
+	// 分组准入与上游解析必须用同一套规则：只有能连到 chatgpt2api 的分组才允许
+	// 被选中，否则模型目录解析不到、异步生图也会打到没有该端点的官方账号上。
+	if apiKeys != nil {
+		apiKeys.SetImageWorkbenchGroupFilter(func(ctx context.Context, groupID int64) bool {
+			upstream, err := resolver.ResolveImageWorkbenchUpstream(ctx, groupID)
+			return err == nil && upstream != nil && upstream.BaseURL != ""
+		})
+	}
 	return h
 }
 

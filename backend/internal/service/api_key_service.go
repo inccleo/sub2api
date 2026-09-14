@@ -310,7 +310,17 @@ type APIKeyService struct {
 	lastUsedTouchL1           sync.Map // keyID -> nextAllowedAt(time.Time)
 	lastUsedTouchSF           singleflight.Group
 	workbenchKeySF            singleflight.Group
+	// imageWorkbenchGroupFilter 由上层注入，用于判定某个分组能否承接在线图片
+	// 工作台（即是否存在指向 chatgpt2api 兼容上游的可调度账号）。为 nil 时
+	// 退化为按 sort_order 选择，保持历史行为。
+	imageWorkbenchGroupFilter ImageWorkbenchGroupFilter
 }
+
+// ImageWorkbenchGroupFilter 报告分组是否能承接在线图片工作台。
+// 之所以需要它：allow_image_generation 是计费/权益开关，并不代表该分组的账号
+// 能连到 chatgpt2api。若按 sort_order 选中了只有官方账号的分组，模型目录与
+// 异步生图接口都无法解析，工作台会一直回退到内置模型。
+type ImageWorkbenchGroupFilter func(ctx context.Context, groupID int64) bool
 
 const ImageWorkbenchAPIKeyName = "__image_workbench__"
 
@@ -379,6 +389,15 @@ func (s *APIKeyService) SetRateLimitCacheInvalidator(inv RateLimitCacheInvalidat
 
 func (s *APIKeyService) SetConcurrencyService(concurrencyService *ConcurrencyService) {
 	s.concurrencyService = concurrencyService
+}
+
+// SetImageWorkbenchGroupFilter 注入在线图片工作台的分组准入判定。
+// 与其他可选依赖一样在构造后注入，避免把账号仓储塞进 APIKeyService 的构造函数。
+func (s *APIKeyService) SetImageWorkbenchGroupFilter(filter ImageWorkbenchGroupFilter) {
+	if s == nil {
+		return
+	}
+	s.imageWorkbenchGroupFilter = filter
 }
 
 func (s *APIKeyService) compileAPIKeyIPRules(apiKey *APIKey) {
@@ -1078,24 +1097,53 @@ func (s *APIKeyService) SearchAPIKeys(ctx context.Context, userID int64, keyword
 	return keys, nil
 }
 
-// selectImageWorkbenchGroup returns every image-enabled OpenAI group the user can
-// use plus the one the workbench prefers (lowest sort_order, then lowest id).
+// selectImageWorkbenchGroup returns the image-enabled OpenAI groups the workbench
+// may bind to plus the one it prefers (lowest sort_order, then lowest id).
+//
+// Only groups that can actually reach a chatgpt2api upstream are considered
+// available. That matters twice over: it keeps the model picker and the async image
+// endpoints on a group that speaks the chatgpt2api API, and it lets an existing
+// managed key that is still pinned to an official-only group be re-pointed by
+// GetOrCreateImageWorkbenchKey. When no group qualifies we keep the previous
+// sort_order-only behaviour so the workbench stays usable.
 func (s *APIKeyService) selectImageWorkbenchGroup(ctx context.Context, userID int64) (map[int64]struct{}, *Group, error) {
 	groups, err := s.GetAvailableGroups(ctx, userID)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	var selected *Group
-	availableGroupIDs := make(map[int64]struct{})
+	candidates := make([]*Group, 0, len(groups))
 	for i := range groups {
 		group := &groups[i]
 		if group.Platform != PlatformOpenAI || !group.AllowImageGeneration || !group.IsActive() {
 			continue
 		}
+		candidates = append(candidates, group)
+	}
+	if len(candidates) == 0 {
+		return nil, nil, ErrImageWorkbenchUnavailable
+	}
+
+	eligible := make([]*Group, 0, len(candidates))
+	for _, group := range candidates {
+		if s.imageWorkbenchGroupEligible(ctx, group.ID) {
+			eligible = append(eligible, group)
+		}
+	}
+	// 没有分组能连到上游时退回全部候选，避免工作台直接不可用。
+	selectedPool, availablePool := eligible, eligible
+	if len(eligible) == 0 {
+		selectedPool, availablePool = candidates, candidates
+	}
+
+	availableGroupIDs := make(map[int64]struct{}, len(availablePool))
+	for _, group := range availablePool {
 		availableGroupIDs[group.ID] = struct{}{}
-		if selected == nil || group.SortOrder < selected.SortOrder ||
-			(group.SortOrder == selected.SortOrder && group.ID < selected.ID) {
+	}
+
+	var selected *Group
+	for _, group := range selectedPool {
+		if preferImageWorkbenchGroup(group, selected) {
 			selected = group
 		}
 	}
@@ -1103,6 +1151,28 @@ func (s *APIKeyService) selectImageWorkbenchGroup(ctx context.Context, userID in
 		return nil, nil, ErrImageWorkbenchUnavailable
 	}
 	return availableGroupIDs, selected, nil
+}
+
+// preferImageWorkbenchGroup reports whether candidate should replace current
+// (lowest sort_order wins, then lowest id for a stable tie-break).
+func preferImageWorkbenchGroup(candidate, current *Group) bool {
+	if candidate == nil {
+		return false
+	}
+	if current == nil {
+		return true
+	}
+	return candidate.SortOrder < current.SortOrder ||
+		(candidate.SortOrder == current.SortOrder && candidate.ID < current.ID)
+}
+
+// imageWorkbenchGroupEligible consults the injected filter. A missing filter means
+// the deployment did not wire upstream discovery, so every group stays eligible.
+func (s *APIKeyService) imageWorkbenchGroupEligible(ctx context.Context, groupID int64) bool {
+	if s == nil || s.imageWorkbenchGroupFilter == nil {
+		return true
+	}
+	return s.imageWorkbenchGroupFilter(ctx, groupID)
 }
 
 // GetImageWorkbenchGroupID exposes the workbench group so callers can resolve the

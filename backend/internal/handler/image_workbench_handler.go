@@ -338,7 +338,7 @@ func (h *ImageWorkbenchHandler) getUpstreamJSON(ctx context.Context, endpoint, a
 	if err != nil {
 		return nil, false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return nil, false
 	}

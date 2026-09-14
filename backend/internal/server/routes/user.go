@@ -86,6 +86,7 @@ func RegisterUserRoutes(
 		imageWorkbench.Use(middleware.ClientRequestID())
 		{
 			imageWorkbench.GET("/config", h.ImageWorkbench.Config)
+			imageWorkbench.GET("/models", h.ImageWorkbench.Models)
 			imageWorkbench.POST("/tasks", middleware.RequestBodyLimit(handler.ImageWorkbenchMaxRequestBody), h.ImageWorkbench.Submit)
 			imageWorkbench.GET("/tasks/:task_id", h.ImageWorkbench.Get)
 		}

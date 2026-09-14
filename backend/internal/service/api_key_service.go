@@ -1078,31 +1078,51 @@ func (s *APIKeyService) SearchAPIKeys(ctx context.Context, userID int64, keyword
 	return keys, nil
 }
 
+// selectImageWorkbenchGroup returns every image-enabled OpenAI group the user can
+// use plus the one the workbench prefers (lowest sort_order, then lowest id).
+func (s *APIKeyService) selectImageWorkbenchGroup(ctx context.Context, userID int64) (map[int64]struct{}, *Group, error) {
+	groups, err := s.GetAvailableGroups(ctx, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var selected *Group
+	availableGroupIDs := make(map[int64]struct{})
+	for i := range groups {
+		group := &groups[i]
+		if group.Platform != PlatformOpenAI || !group.AllowImageGeneration || !group.IsActive() {
+			continue
+		}
+		availableGroupIDs[group.ID] = struct{}{}
+		if selected == nil || group.SortOrder < selected.SortOrder ||
+			(group.SortOrder == selected.SortOrder && group.ID < selected.ID) {
+			selected = group
+		}
+	}
+	if selected == nil {
+		return nil, nil, ErrImageWorkbenchUnavailable
+	}
+	return availableGroupIDs, selected, nil
+}
+
+// GetImageWorkbenchGroupID exposes the workbench group so callers can resolve the
+// matching upstream without duplicating the selection rules.
+func (s *APIKeyService) GetImageWorkbenchGroupID(ctx context.Context, userID int64) (int64, error) {
+	_, selected, err := s.selectImageWorkbenchGroup(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+	return selected.ID, nil
+}
+
 // GetOrCreateImageWorkbenchKey returns the system-owned key used by the online
 // image workbench. Its credential remains server-side and all generation calls
 // still pass through the regular API-key gateway middleware.
 func (s *APIKeyService) GetOrCreateImageWorkbenchKey(ctx context.Context, userID int64) (*APIKey, error) {
 	value, err, _ := s.workbenchKeySF.Do(strconv.FormatInt(userID, 10), func() (any, error) {
-		groups, err := s.GetAvailableGroups(ctx, userID)
+		availableGroupIDs, selected, err := s.selectImageWorkbenchGroup(ctx, userID)
 		if err != nil {
 			return nil, err
-		}
-
-		var selected *Group
-		availableGroupIDs := make(map[int64]struct{})
-		for i := range groups {
-			group := &groups[i]
-			if group.Platform != PlatformOpenAI || !group.AllowImageGeneration || !group.IsActive() {
-				continue
-			}
-			availableGroupIDs[group.ID] = struct{}{}
-			if selected == nil || group.SortOrder < selected.SortOrder ||
-				(group.SortOrder == selected.SortOrder && group.ID < selected.ID) {
-				selected = group
-			}
-		}
-		if selected == nil {
-			return nil, ErrImageWorkbenchUnavailable
 		}
 
 		keys, err := s.SearchAPIKeys(ctx, userID, ImageWorkbenchAPIKeyName, 10)

@@ -7,10 +7,15 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -18,7 +23,7 @@ import (
 )
 
 const (
-	imageWorkbenchModel = "gpt-image-2"
+	imageWorkbenchDefaultModel = "gpt-image-2"
 	// JSON generation stays small; multipart edits need room for reference images
 	// (OpenAI allows ~20MB per part). Cap total request body at 64MB.
 	ImageWorkbenchMaxRequestBody = 64 << 20
@@ -27,7 +32,17 @@ const (
 	imageWorkbenchMaxN           = 10
 	imageWorkbenchMaxImages      = 4
 	imageWorkbenchMaxImageBytes  = 20 << 20
+	imageWorkbenchMaxModelLen    = 64
+	// imageWorkbenchModelCacheTTL keeps the upstream model catalog from being
+	// re-fetched on every page load.
+	imageWorkbenchModelCacheTTL = 5 * time.Minute
+	// imageWorkbenchModelsMaxBytes caps the upstream /v1/models response we read.
+	imageWorkbenchModelsMaxBytes = 4 << 20
 )
+
+// imageWorkbenchFallbackModels mirrors the image model ids chatgpt2api advertises
+// by default. It keeps the picker usable when the upstream is unreachable.
+var imageWorkbenchFallbackModels = []string{"gpt-image-2", "codex-gpt-image-2"}
 
 // imageWorkbenchPresetSizes mirrors the presets exposed by chatgpt2api's image composer.
 var imageWorkbenchPresetSizes = []string{
@@ -47,19 +62,37 @@ var imageWorkbenchPresetSizes = []string{
 }
 
 type ImageWorkbenchHandler struct {
-	apiKeys imageWorkbenchAPIKeyProvider
-	auth    middleware.APIKeyAuthMiddleware
-	async   *AsyncImageHandler
-	submit  gin.HandlerFunc
-	get     gin.HandlerFunc
+	apiKeys         imageWorkbenchAPIKeyProvider
+	auth            middleware.APIKeyAuthMiddleware
+	async           *AsyncImageHandler
+	imageChat       *config.ImageChatConfig
+	imageChatClient *http.Client
+	upstreams       imageWorkbenchUpstreamResolver
+	submit          gin.HandlerFunc
+	get             gin.HandlerFunc
+
+	// modelsCache memoizes the upstream image model catalog per upstream so the
+	// model picker does not hit chatgpt2api on every page load.
+	modelsMu    sync.Mutex
+	modelsCache map[string]imageWorkbenchModelsCacheEntry
+}
+
+type imageWorkbenchModelsCacheEntry struct {
+	at     time.Time
+	models []string
 }
 
 type imageWorkbenchAPIKeyProvider interface {
 	GetOrCreateImageWorkbenchKey(ctx context.Context, userID int64) (*service.APIKey, error)
+	// GetImageWorkbenchGroupID exposes the group selection behind
+	// GetOrCreateImageWorkbenchKey so the model catalog can target the matching
+	// upstream.
+	GetImageWorkbenchGroupID(ctx context.Context, userID int64) (int64, error)
 }
 
 type imageWorkbenchSubmitRequest struct {
 	Prompt     string `json:"prompt"`
+	Model      string `json:"model"`
 	Size       string `json:"size"`
 	Quality    string `json:"quality"`
 	Background string `json:"background"`
@@ -83,6 +116,35 @@ func NewImageWorkbenchHandler(
 	return h
 }
 
+// SetImageChatConfig wires the server-side chatgpt2api destination after construction.
+func (h *ImageWorkbenchHandler) SetImageChatConfig(cfg *config.Config) {
+	if cfg == nil {
+		return
+	}
+	h.imageChat = &cfg.ImageChat
+	timeout := time.Duration(cfg.ImageChat.TimeoutSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = 5 * time.Minute
+	}
+	h.imageChatClient = &http.Client{Timeout: timeout}
+	// A reconfigured upstream invalidates whatever catalog was cached before.
+	h.modelsMu.Lock()
+	h.modelsCache = nil
+	h.modelsMu.Unlock()
+}
+
+// SetUpstreamResolver wires the image-group account lookup used to discover the
+// chatgpt2api instance that owns the image model catalog.
+func (h *ImageWorkbenchHandler) SetUpstreamResolver(resolver imageWorkbenchUpstreamResolver) {
+	if h == nil {
+		return
+	}
+	h.upstreams = resolver
+	h.modelsMu.Lock()
+	h.modelsCache = nil
+	h.modelsMu.Unlock()
+}
+
 func (h *ImageWorkbenchHandler) Config(c *gin.Context) {
 	subject, ok := middleware.GetAuthSubjectFromContext(c)
 	if !ok {
@@ -99,7 +161,7 @@ func (h *ImageWorkbenchHandler) Config(c *gin.Context) {
 	}
 	response.Success(c, gin.H{
 		"ready":                           true,
-		"models":                          []string{imageWorkbenchModel},
+		"models":                          imageWorkbenchModelCatalog(),
 		"sizes":                           append([]string(nil), imageWorkbenchPresetSizes...),
 		"qualities":                       []string{"auto", "low", "medium", "high"},
 		"max_n":                           imageWorkbenchMaxN,
@@ -107,6 +169,232 @@ func (h *ImageWorkbenchHandler) Config(c *gin.Context) {
 		"supports_edit":                   true,
 		"supports_transparent_background": true,
 	})
+}
+
+// Models lists the image models the image group's chatgpt2api upstream currently
+// advertises. chatgpt2api exposes the authoritative list through /api/model-catalog
+// and, on older builds, through its OpenAI-compatible /v1/models endpoint; we keep
+// only ids that carry an "image" marker for the latter. When the upstream is
+// unreachable we fall back to the built-in catalog so the page stays usable.
+func (h *ImageWorkbenchHandler) Models(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	upstream := h.resolveUpstream(c.Request.Context(), subject.UserID)
+	models, source := h.availableImageModels(c.Request.Context(), upstream)
+	response.Success(c, gin.H{
+		"models": models,
+		"source": source,
+	})
+}
+
+func (h *ImageWorkbenchHandler) availableImageModels(ctx context.Context, upstream *imageWorkbenchUpstream) ([]string, string) {
+	if models := h.cachedUpstreamImageModels(ctx, upstream); len(models) > 0 {
+		return models, "upstream"
+	}
+	return imageWorkbenchModelCatalog(), "fallback"
+}
+
+// resolveUpstream prefers the account backing the caller's image group so the
+// picker matches what generation actually reaches, then falls back to an
+// explicitly configured image_chat destination.
+func (h *ImageWorkbenchHandler) resolveUpstream(ctx context.Context, userID int64) *imageWorkbenchUpstream {
+	if h == nil {
+		return nil
+	}
+	if h.upstreams != nil && h.apiKeys != nil {
+		if groupID, err := h.apiKeys.GetImageWorkbenchGroupID(ctx, userID); err == nil {
+			if upstream, rerr := h.upstreams.ResolveImageWorkbenchUpstream(ctx, groupID); rerr == nil && upstream != nil && upstream.BaseURL != "" {
+				return upstream
+			}
+		}
+	}
+	if h.imageChat != nil && h.imageChat.Enabled {
+		if base := strings.TrimRight(strings.TrimSpace(h.imageChat.BaseURL), "/"); base != "" {
+			return &imageWorkbenchUpstream{BaseURL: base, APIKey: strings.TrimSpace(h.imageChat.APIKey)}
+		}
+	}
+	return nil
+}
+
+// cachedUpstreamImageModels returns the upstream catalog, reusing a short-lived
+// cache per upstream so a busy page does not translate into a request storm on
+// chatgpt2api.
+func (h *ImageWorkbenchHandler) cachedUpstreamImageModels(ctx context.Context, upstream *imageWorkbenchUpstream) []string {
+	if h == nil || upstream == nil || upstream.BaseURL == "" {
+		return nil
+	}
+	cacheKey := upstream.BaseURL
+	h.modelsMu.Lock()
+	if entry, found := h.modelsCache[cacheKey]; found && len(entry.models) > 0 && time.Since(entry.at) < imageWorkbenchModelCacheTTL {
+		cached := append([]string(nil), entry.models...)
+		h.modelsMu.Unlock()
+		return cached
+	}
+	h.modelsMu.Unlock()
+
+	models := h.fetchUpstreamImageModels(ctx, upstream)
+	if len(models) == 0 {
+		return nil
+	}
+	h.modelsMu.Lock()
+	if h.modelsCache == nil {
+		h.modelsCache = make(map[string]imageWorkbenchModelsCacheEntry)
+	}
+	h.modelsCache[cacheKey] = imageWorkbenchModelsCacheEntry{at: time.Now(), models: append([]string(nil), models...)}
+	h.modelsMu.Unlock()
+	return models
+}
+
+func (h *ImageWorkbenchHandler) fetchUpstreamImageModels(ctx context.Context, upstream *imageWorkbenchUpstream) []string {
+	if h == nil || upstream == nil || upstream.BaseURL == "" {
+		return nil
+	}
+	base := strings.TrimRight(strings.TrimSpace(upstream.BaseURL), "/")
+	parsed, err := url.Parse(base)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return nil
+	}
+	requestCtx := ctx
+	if requestCtx == nil {
+		requestCtx = context.Background()
+	}
+	if _, hasDeadline := requestCtx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		requestCtx, cancel = context.WithTimeout(requestCtx, 15*time.Second)
+		defer cancel()
+	}
+
+	// chatgpt2api advertises the authoritative image model list (including
+	// account-derived ids such as "plus-codex-gpt-image-2") through its model
+	// catalog endpoint. Older builds only ship the OpenAI-style list, so we fall
+	// back to filtering that one by the "image" marker.
+	if models := h.fetchUpstreamModelCatalog(requestCtx, base, upstream.APIKey); len(models) > 0 {
+		return models
+	}
+	return h.fetchUpstreamOpenAIModels(requestCtx, base, upstream.APIKey)
+}
+
+// fetchUpstreamModelCatalog reads image_models from chatgpt2api's
+// /api/model-catalog endpoint.
+func (h *ImageWorkbenchHandler) fetchUpstreamModelCatalog(ctx context.Context, base, apiKey string) []string {
+	body, ok := h.getUpstreamJSON(ctx, base+"/api/model-catalog", apiKey)
+	if !ok {
+		return nil
+	}
+	var payload struct {
+		ImageModels []string `json:"image_models"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil
+	}
+	return dedupeImageWorkbenchModels(payload.ImageModels, nil)
+}
+
+// fetchUpstreamOpenAIModels filters the OpenAI-compatible /v1/models list down to
+// the ids that advertise image generation.
+func (h *ImageWorkbenchHandler) fetchUpstreamOpenAIModels(ctx context.Context, base, apiKey string) []string {
+	body, ok := h.getUpstreamJSON(ctx, base+"/v1/models", apiKey)
+	if !ok {
+		return nil
+	}
+	var payload struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil
+	}
+	ids := make([]string, 0, len(payload.Data))
+	for _, item := range payload.Data {
+		ids = append(ids, item.ID)
+	}
+	models := dedupeImageWorkbenchModels(ids, func(id string) bool {
+		return strings.Contains(strings.ToLower(id), "image")
+	})
+	sort.Strings(models)
+	return models
+}
+
+// getUpstreamJSON performs an authenticated GET against chatgpt2api and returns
+// the raw body. Every failure is signalled as ok=false so callers can fall back.
+func (h *ImageWorkbenchHandler) getUpstreamJSON(ctx context.Context, endpoint, apiKey string) ([]byte, bool) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, false
+	}
+	req.Header.Set("Accept", "application/json")
+	if key := strings.TrimSpace(apiKey); key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	client := h.imageChatClient
+	if client == nil {
+		client = &http.Client{Timeout: 15 * time.Second}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, false
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, imageWorkbenchModelsMaxBytes))
+	if err != nil {
+		return nil, false
+	}
+	return body, true
+}
+
+// dedupeImageWorkbenchModels trims ids, drops blanks and duplicates, and applies
+// an optional keep filter while preserving the upstream ordering.
+func dedupeImageWorkbenchModels(ids []string, keep func(string) bool) []string {
+	seen := make(map[string]struct{}, len(ids))
+	models := make([]string, 0, len(ids))
+	for _, raw := range ids {
+		id := strings.TrimSpace(raw)
+		if id == "" || (keep != nil && !keep(id)) {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		models = append(models, id)
+	}
+	return models
+}
+
+// imageWorkbenchModelCatalog returns a fresh copy of the built-in catalog.
+func imageWorkbenchModelCatalog() []string {
+	return append([]string(nil), imageWorkbenchFallbackModels...)
+}
+
+// normalizeImageWorkbenchModel keeps the forwarded model id to a conservative
+// ASCII charset so a caller cannot smuggle anything into the upstream payload.
+// An empty value means "use the default".
+func normalizeImageWorkbenchModel(value string) (string, bool) {
+	model := strings.TrimSpace(value)
+	if model == "" {
+		return imageWorkbenchDefaultModel, true
+	}
+	if len(model) > imageWorkbenchMaxModelLen {
+		return "", false
+	}
+	for _, r := range model {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '.', r == '_', r == '-', r == ':':
+		default:
+			return "", false
+		}
+	}
+	return model, true
 }
 
 func (h *ImageWorkbenchHandler) Submit(c *gin.Context) {
@@ -130,8 +418,13 @@ func (h *ImageWorkbenchHandler) submitGenerate(c *gin.Context) {
 	if !ok {
 		return
 	}
+	model, ok := normalizeImageWorkbenchModel(input.Model)
+	if !ok {
+		response.BadRequest(c, "Unsupported image model")
+		return
+	}
 	requestPayload := gin.H{
-		"model":   imageWorkbenchModel,
+		"model":   model,
 		"prompt":  prompt,
 		"size":    size,
 		"quality": quality,
@@ -164,6 +457,11 @@ func (h *ImageWorkbenchHandler) submitEdit(c *gin.Context) {
 	}
 
 	prompt := firstFormValue(form, "prompt")
+	model, ok := normalizeImageWorkbenchModel(firstFormValue(form, "model"))
+	if !ok {
+		response.BadRequest(c, "Unsupported image model")
+		return
+	}
 	size := firstFormValue(form, "size")
 	quality := firstFormValue(form, "quality")
 	background := firstFormValue(form, "background")
@@ -176,7 +474,7 @@ func (h *ImageWorkbenchHandler) submitEdit(c *gin.Context) {
 		}
 		n = parsed
 	}
-	prompt, size, quality, background, n, ok := normalizeImageWorkbenchControls(c, prompt, size, quality, background, n)
+	prompt, size, quality, background, n, ok = normalizeImageWorkbenchControls(c, prompt, size, quality, background, n)
 	if !ok {
 		return
 	}
@@ -195,7 +493,7 @@ func (h *ImageWorkbenchHandler) submitEdit(c *gin.Context) {
 		return
 	}
 
-	body, contentType, err := buildImageWorkbenchEditMultipart(prompt, size, quality, background, n, uploads)
+	body, contentType, err := buildImageWorkbenchEditMultipart(prompt, model, size, quality, background, n, uploads)
 	if err != nil {
 		response.InternalError(c, "Failed to prepare image edit request")
 		return
@@ -361,11 +659,11 @@ func isAllowedImageWorkbenchUploadType(contentType, fileName string) bool {
 	return false
 }
 
-func buildImageWorkbenchEditMultipart(prompt, size, quality, background string, n int, uploads []imageWorkbenchUpload) ([]byte, string, error) {
+func buildImageWorkbenchEditMultipart(prompt, model, size, quality, background string, n int, uploads []imageWorkbenchUpload) ([]byte, string, error) {
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 	fields := map[string]string{
-		"model":   imageWorkbenchModel,
+		"model":   model,
 		"prompt":  prompt,
 		"size":    size,
 		"quality": quality,

@@ -167,7 +167,7 @@ export default {
     announcements: 'Announcements',
     apiKeys: 'API Keys',
     batchImage: 'Batch Images',
-    imageWorkbench: 'Image Studio',
+    imageWorkbench: 'Image Chat',
     usage: 'Usage',
     redeem: 'Redeem',
     affiliate: 'Affiliate Rebates',

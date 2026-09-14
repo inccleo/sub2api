@@ -66,6 +66,31 @@ describe('image workbench api', () => {
     expect(get).toHaveBeenCalledWith('/image-workbench/tasks/imgtask_1')
   })
 
+  it('forwards the selected model id', async () => {
+    post.mockResolvedValue({ data: { id: 'imgtask_model', status: 'processing' } })
+    const { submitImageWorkbenchTask } = await import('../imageWorkbench')
+
+    await submitImageWorkbenchTask({
+      prompt: 'city',
+      model: 'codex-gpt-image-2',
+      size: '1024x1024',
+      quality: 'auto',
+    })
+
+    expect(post.mock.calls[0][1]).toMatchObject({ model: 'codex-gpt-image-2' })
+  })
+
+  it('reads the upstream image model catalog', async () => {
+    get.mockResolvedValue({ data: { models: ['gpt-image-2', 'codex-gpt-image-2'], source: 'upstream' } })
+    const { getImageWorkbenchModels } = await import('../imageWorkbench')
+
+    await expect(getImageWorkbenchModels()).resolves.toEqual({
+      models: ['gpt-image-2', 'codex-gpt-image-2'],
+      source: 'upstream',
+    })
+    expect(get).toHaveBeenCalledWith('/image-workbench/models')
+  })
+
   it('collects all result image urls', async () => {
     const { collectImageWorkbenchURLs } = await import('../imageWorkbench')
     const urls = collectImageWorkbenchURLs({

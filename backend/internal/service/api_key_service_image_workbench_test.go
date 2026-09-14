@@ -262,3 +262,88 @@ func TestGetOrCreateImageWorkbenchKeyConcurrentFirstUseCreatesOnce(t *testing.T)
 	require.Equal(t, 1, createCalls)
 	require.Len(t, keys, 1)
 }
+
+func imageWorkbenchGroupWithSort(id int64, sortOrder int) Group {
+	group := availableImageWorkbenchGroup(id)
+	group.SortOrder = sortOrder
+	return group
+}
+
+// 生产回归：sort_order 最小的分组只有官方账号（过滤器判定不合格），工作台必须改选
+// 能连到 chatgpt2api 的分组，否则模型目录会一直回退到内置列表。
+func TestGetOrCreateImageWorkbenchKeySkipsGroupWithoutUpstream(t *testing.T) {
+	repo := newImageWorkbenchAPIKeyRepoStub()
+	svc := newImageWorkbenchAPIKeyService(repo,
+		imageWorkbenchGroupWithSort(2, 0),
+		imageWorkbenchGroupWithSort(18, 40),
+	)
+	svc.SetImageWorkbenchGroupFilter(func(_ context.Context, groupID int64) bool {
+		return groupID == 18
+	})
+
+	key, err := svc.GetOrCreateImageWorkbenchKey(context.Background(), 7)
+	require.NoError(t, err)
+	require.NotNil(t, key.GroupID)
+	require.Equal(t, int64(18), *key.GroupID)
+}
+
+func TestGetImageWorkbenchGroupIDSkipsGroupWithoutUpstream(t *testing.T) {
+	repo := newImageWorkbenchAPIKeyRepoStub()
+	svc := newImageWorkbenchAPIKeyService(repo,
+		imageWorkbenchGroupWithSort(2, 0),
+		imageWorkbenchGroupWithSort(18, 40),
+	)
+	svc.SetImageWorkbenchGroupFilter(func(_ context.Context, groupID int64) bool {
+		return groupID == 18
+	})
+
+	groupID, err := svc.GetImageWorkbenchGroupID(context.Background(), 7)
+	require.NoError(t, err)
+	require.Equal(t, int64(18), groupID)
+}
+
+// 已存在的托管 Key 若仍指向不合格分组，必须被改绑，否则生图依旧打到官方账号上。
+func TestGetOrCreateImageWorkbenchKeyRepointsKeyFromIneligibleGroup(t *testing.T) {
+	ineligibleGroupID := int64(2)
+	existing := APIKey{
+		ID:      41,
+		UserID:  7,
+		Key:     "sk-iwb-existing-managed-credential",
+		Name:    ImageWorkbenchAPIKeyName,
+		GroupID: &ineligibleGroupID,
+		Status:  StatusActive,
+	}
+	repo := newImageWorkbenchAPIKeyRepoStub(existing)
+	svc := newImageWorkbenchAPIKeyService(repo,
+		imageWorkbenchGroupWithSort(2, 0),
+		imageWorkbenchGroupWithSort(18, 40),
+	)
+	svc.SetImageWorkbenchGroupFilter(func(_ context.Context, groupID int64) bool {
+		return groupID == 18
+	})
+
+	key, err := svc.GetOrCreateImageWorkbenchKey(context.Background(), 7)
+	require.NoError(t, err)
+	require.Equal(t, existing.ID, key.ID)
+	require.NotNil(t, key.GroupID)
+	require.Equal(t, int64(18), *key.GroupID)
+
+	keys, createCalls := repo.snapshot()
+	require.Zero(t, createCalls)
+	require.Len(t, keys, 1)
+}
+
+// 没有任何分组能连到上游时退回旧的 sort_order 规则，工作台不能被直接判为不可用。
+func TestGetOrCreateImageWorkbenchKeyFallsBackWhenNoGroupHasUpstream(t *testing.T) {
+	repo := newImageWorkbenchAPIKeyRepoStub()
+	svc := newImageWorkbenchAPIKeyService(repo,
+		imageWorkbenchGroupWithSort(2, 0),
+		imageWorkbenchGroupWithSort(18, 40),
+	)
+	svc.SetImageWorkbenchGroupFilter(func(context.Context, int64) bool { return false })
+
+	key, err := svc.GetOrCreateImageWorkbenchKey(context.Background(), 7)
+	require.NoError(t, err)
+	require.NotNil(t, key.GroupID)
+	require.Equal(t, int64(2), *key.GroupID)
+}

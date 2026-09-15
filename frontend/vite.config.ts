@@ -13,20 +13,7 @@ function escapeHtml(value: string): string {
   })[character] || character)
 }
 
-function isSafeImageUrl(value: string): boolean {
-  const trimmed = value.trim()
-  if ((trimmed.startsWith('/') && !trimmed.startsWith('//')) || /^data:image\//i.test(trimmed)) {
-    return true
-  }
-  try {
-    const parsed = new URL(trimmed)
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
-  } catch {
-    return false
-  }
-}
-
-function injectBranding(html: string, config: { site_name?: string; site_logo?: string }): string {
+function injectBranding(html: string, config: { site_name?: string }): string {
   let brandedHtml = html
   const siteName = config.site_name?.trim()
   if (siteName) {
@@ -36,13 +23,6 @@ function injectBranding(html: string, config: { site_name?: string; site_logo?: 
     )
   }
 
-  const siteLogo = config.site_logo?.trim()
-  if (siteLogo && isSafeImageUrl(siteLogo)) {
-    brandedHtml = brandedHtml.replace(
-      /<link\s+rel=["']icon["'][^>]*>/i,
-      `<link rel="icon" href="${escapeHtml(siteLogo)}" />`,
-    )
-  }
   return brandedHtml
 }
 

@@ -14,17 +14,12 @@ describe('updateFavicon', () => {
     expect(link?.type).toBe('image/svg+xml')
   })
 
-  it('supports a separately configured favicon', () => {
-    updateFavicon('https://example.com/custom-icon.png')
-
-    const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
-    expect(link?.href).toBe('https://example.com/custom-icon.png')
-  })
-
-  it('ignores unsafe logo URLs', () => {
-    updateFavicon('javascript:alert(1)')
+  it('creates the dedicated favicon when it is missing', () => {
+    document.head.innerHTML = ''
+    updateFavicon()
 
     const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
     expect(link?.getAttribute('href')).toBe('/logo.svg')
+    expect(link?.type).toBe('image/svg+xml')
   })
 })

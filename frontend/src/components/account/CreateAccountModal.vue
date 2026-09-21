@@ -1432,8 +1432,9 @@
           <p v-if="apiKeyHint" class="input-hint">{{ apiKeyHint }}</p>
         </div>
 
-        <!-- 上游倍率自动探测：全部 API-key 平台可用（所在区块已限定 apikey 类型） -->
+        <!-- 上游倍率探测：仅官方/兼容 API-key 平台；TypeSafe 没有 /v1/sub2api/billing -->
         <div
+          v-if="isUpstreamBillingProbePlatform(form.platform)"
           class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
         >
           <div>
@@ -3965,6 +3966,7 @@ import {
   defaultOpenCodeProtocolRules,
   isCNProviderPlatform,
   isHeaderOverrideCapable,
+  isUpstreamBillingProbePlatform,
   validateHeaderOverrideRows,
   type CnAccountMode,
   type CnApiProtocol,
@@ -5906,7 +5908,9 @@ const handleSubmit = async () => {
     ...form,
     group_ids: form.group_ids,
     extra: withUpstreamRequestIdHeader(extra),
-    upstream_billing_probe_enabled: upstreamBillingAutoProbeEnabled.value,
+    upstream_billing_probe_enabled: isUpstreamBillingProbePlatform(form.platform)
+      ? upstreamBillingAutoProbeEnabled.value
+      : undefined,
     auto_pause_on_expired: autoPauseOnExpired.value
   })
 }
@@ -6037,7 +6041,10 @@ const createAccountAndFinish = async (
     expires_at: form.expires_at,
     // 上游倍率探测对全部 API-key 平台开放（antigravity upstream 走本 helper）；
     // 非 apikey 类型（bedrock/oauth）不传，后端不动作。
-    upstream_billing_probe_enabled: type === 'apikey' ? upstreamBillingAutoProbeEnabled.value : undefined,
+    upstream_billing_probe_enabled:
+      type === 'apikey' && isUpstreamBillingProbePlatform(platform)
+        ? upstreamBillingAutoProbeEnabled.value
+        : undefined,
     auto_pause_on_expired: autoPauseOnExpired.value
   })
 }

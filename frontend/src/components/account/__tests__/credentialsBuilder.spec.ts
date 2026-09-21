@@ -18,6 +18,7 @@ import {
   isCustomGrokBaseUrl,
   resolveOpenCodeAccountMode,
   isHeaderOverrideCapable,
+  isUpstreamBillingProbePlatform,
   GROK_BASE_URL_PRESETS,
   parseHeaderOverridesJson,
   parseOpenCodeGoProtocolRules,
@@ -174,10 +175,26 @@ describe('isHeaderOverrideCapable', () => {
     expect(isHeaderOverrideCapable('grok', 'bedrock')).toBe(false)
   })
 
+  it('does not include typesafe', () => {
+    expect(isHeaderOverrideCapable('typesafe', 'apikey')).toBe(false)
+  })
+
   it('other platforms are not supported', () => {
     expect(isHeaderOverrideCapable('gemini', 'apikey')).toBe(false)
     expect(isHeaderOverrideCapable('antigravity', 'apikey')).toBe(false)
     expect(isHeaderOverrideCapable('', 'apikey')).toBe(false)
+  })
+})
+
+describe('isUpstreamBillingProbePlatform', () => {
+  it('matches backend API-key platforms that can probe /v1/sub2api/billing', () => {
+    for (const platform of ['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go']) {
+      expect(isUpstreamBillingProbePlatform(platform)).toBe(true)
+    }
+  })
+
+  it('excludes TypeSafe System One', () => {
+    expect(isUpstreamBillingProbePlatform('typesafe')).toBe(false)
   })
 })
 

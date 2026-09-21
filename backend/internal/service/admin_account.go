@@ -437,13 +437,14 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		Schedulable: true,
 	}
 	if input.ProbeEnabled != nil && *input.ProbeEnabled {
-		if !isUpstreamBillingProbeAccount(account) {
+		if isUpstreamBillingProbeAccount(account) {
+			if account.Extra == nil {
+				account.Extra = make(map[string]any)
+			}
+			account.Extra[UpstreamBillingProbeEnabledExtraKey] = true
+		} else if account.Type != AccountTypeAPIKey {
 			return nil, ErrUpstreamBillingProbeAccountInvalid
 		}
-		if account.Extra == nil {
-			account.Extra = make(map[string]any)
-		}
-		account.Extra[UpstreamBillingProbeEnabledExtraKey] = true
 	}
 	// 预计算固定时间重置的下次重置时间
 	if account.Extra != nil {

@@ -56,6 +56,24 @@ export function isHeaderOverrideCapable(platform: string, type: string): boolean
   return false
 }
 
+/** 上游倍率探测资格（与后端 IsUpstreamBillingProbeIdentity 保持一致） */
+export const UPSTREAM_BILLING_PROBE_PLATFORMS = [
+  'anthropic',
+  'openai',
+  'gemini',
+  'antigravity',
+  'grok',
+  'kimi',
+  'zhipu',
+  'deepseek',
+  'minimax',
+  'opencode_go'
+] as const
+
+export function isUpstreamBillingProbePlatform(platform: string): boolean {
+  return (UPSTREAM_BILLING_PROBE_PLATFORMS as readonly string[]).includes(platform)
+}
+
 /** 禁止覆写的请求头（与后端 headerOverrideBlockedNames 保持一致） */
 const HEADER_OVERRIDE_BLOCKED_NAMES = new Set([
   'host',

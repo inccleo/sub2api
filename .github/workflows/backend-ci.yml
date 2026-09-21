@@ -2,6 +2,10 @@ name: CI
 
 on:
   push:
+    # Branch pushes only. Four-part custom tags already run Custom release;
+    # firing this workflow on those tags queued extra jobs against the hotfix.
+    branches:
+      - '**'
   pull_request:
 
 permissions:

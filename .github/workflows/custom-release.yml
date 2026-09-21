@@ -16,9 +16,12 @@ on:
 permissions:
   contents: write
 
+# Build+publish only. Unit tests already run in CI on the branch push; re-running
+# ./internal/service here added ~5 minutes to every production hotfix.
 jobs:
   release-linux-amd64:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Resolve and validate release tag
         id: release
@@ -39,14 +42,30 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ steps.release.outputs.tag }}
-          fetch-depth: 0
+          fetch-depth: 1
+
+      - name: Compute frontend tree hash
+        id: frontend
+        run: |
+          set -euo pipefail
+          hash="$(git ls-files -z -- frontend | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
+          echo "hash=$hash" >> "$GITHUB_OUTPUT"
+
+      - name: Restore frontend dist
+        id: frontend-dist
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: backend/internal/web/dist
+          key: ${{ runner.os }}-frontend-dist-${{ steps.frontend.outputs.hash }}
 
       - name: Set up pnpm
+        if: steps.frontend-dist.outputs.cache-hit != 'true'
         uses: pnpm/action-setup@b0f76dfb45f55f8421693e4803ac7bb65143bd34 # v6
         with:
           version: 9
 
       - name: Set up Node.js
+        if: steps.frontend-dist.outputs.cache-hit != 'true'
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '20'
@@ -54,10 +73,16 @@ jobs:
           cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Build frontend
+        if: steps.frontend-dist.outputs.cache-hit != 'true'
         working-directory: frontend
         run: |
           pnpm install --frozen-lockfile
           pnpm run build
+
+      - name: Verify embedded frontend dist
+        run: |
+          set -euo pipefail
+          test -f backend/internal/web/dist/index.html
 
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
@@ -65,10 +90,6 @@ jobs:
           go-version-file: backend/go.mod
           check-latest: false
           cache-dependency-path: backend/go.sum
-
-      - name: Run backend unit tests
-        working-directory: backend
-        run: go test -tags=unit ./internal/service
 
       - name: Build Linux amd64 archive and checksum
         id: archive

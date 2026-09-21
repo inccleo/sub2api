@@ -142,6 +142,8 @@ docs/*
 !docs/COMPOSITE_GROUPS.md
 !docs/DESKTOP_AUTH.md
 !docs/IMAGE_CHAT.md
+!docs/sub2api-ranxi-parallel-eval.md
+!docs/sub2api-ranxi-port-patches.md
 !docs/PLUGIN_DEVELOPMENT.md
 !docs/channel-monitor-v2-safe-defaults.md
 !docs/legal/

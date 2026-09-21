@@ -1,6 +1,10 @@
 package service
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
+)
 
 func TestResolveOpenAIForwardModel(t *testing.T) {
 	tests := []struct {
@@ -326,6 +330,11 @@ func TestCanonicalOpenAIAccountSchedulingModelMatchesForwardSemantics(t *testing
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.account != nil && tt.account.Platform == PlatformGrok {
+				original := xai.RuntimeModelMappingOptions()
+				t.Cleanup(func() { xai.SetRuntimeModelMappingOptions(original) })
+				xai.SetRuntimeModelMappingOptions(xai.ModelMappingOptions{})
+			}
 			if got := canonicalOpenAIAccountSchedulingModel(tt.account, tt.model); got != tt.want {
 				t.Fatalf("canonical scheduling model = %q, want %q", got, tt.want)
 			}

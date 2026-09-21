@@ -31,6 +31,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/typesafe"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/gin-gonic/gin"
@@ -389,7 +390,116 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.testOpenCodeGoAccountConnection(c, account, modelID, prompt)
 	}
 
+	if account.IsTypeSafe() {
+		return s.testTypeSafeAccountConnection(c, account, modelID, prompt)
+	}
+
 	return s.testClaudeAccountConnection(c, account, modelID)
+}
+
+const typeSafeAccountTestDefaultPrompt = "hi"
+
+func typeSafeAccountTestModel(account *Account, modelID string) string {
+	testModelID := strings.TrimSpace(modelID)
+	if account != nil {
+		testModelID = account.GetMappedModel(testModelID)
+	}
+	if typesafe.IsSupportedModel(testModelID) {
+		return testModelID
+	}
+	return typesafe.JevLatestModel
+}
+
+func typeSafeAccountTestBody(model, prompt string) ([]byte, error) {
+	state := strings.TrimSpace(prompt)
+	if state == "" {
+		state = typeSafeAccountTestDefaultPrompt
+	}
+	body, err := json.Marshal(map[string]any{
+		"model": model,
+		"state": state,
+		"questions": map[string]any{
+			"connectivity": map[string]any{
+				"type":         "noul",
+				"instructions": "Evaluate whether this is a connectivity probe",
+			},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := typesafe.ValidateSystemOneRequest(body); err != nil {
+		return nil, err
+	}
+	return body, nil
+}
+
+// testTypeSafeAccountConnection probes native POST /v1/systemone. TypeSafe is
+// not Chat Completions or Anthropic Messages; falling through to the Claude
+// tester hits /v1/messages and FastAPI returns 404.
+func (s *AccountTestService) testTypeSafeAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
+	ctx := c.Request.Context()
+	testModelID := typeSafeAccountTestModel(account, modelID)
+
+	key := account.GetTypeSafeAPIKey()
+	if key == "" {
+		return s.sendErrorAndEnd(c, "No TypeSafe API key available")
+	}
+	baseURL, err := s.validateUpstreamBaseURL(account.GetTypeSafeBaseURL())
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid base URL: %s", err.Error()))
+	}
+	body, err := typeSafeAccountTestBody(testModelID, prompt)
+	if err != nil {
+		return s.sendErrorAndEnd(c, "Failed to create TypeSafe test payload")
+	}
+
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+	c.Writer.Flush()
+
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
+	s.sendEvent(c, TestEvent{Type: "status", Text: "正在通过 /v1/systemone 测试连接"})
+
+	req, err := typesafe.NewSystemOneRequest(ctx, baseURL, key, body)
+	if err != nil {
+		return s.sendErrorAndEnd(c, "Failed to create TypeSafe request")
+	}
+	account.ApplyHeaderOverrides(req.Header)
+
+	proxyURL := ""
+	if account.ProxyID != nil && account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("TypeSafe System One (/v1/systemone) request failed: %s", err.Error()))
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		upstreamBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		errMsg := fmt.Sprintf("TypeSafe System One (/v1/systemone) returned %d: %s", resp.StatusCode, string(upstreamBody))
+		if resp.StatusCode == http.StatusUnauthorized {
+			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
+		}
+		return s.sendErrorAndEnd(c, errMsg)
+	}
+
+	decoded, err := typesafe.DecodeSystemOneResponse(resp.Body)
+	if err != nil {
+		return s.sendErrorAndEnd(c, "Invalid TypeSafe System One response from /v1/systemone")
+	}
+	text := string(decoded.Body)
+	var pretty bytes.Buffer
+	if json.Indent(&pretty, decoded.Body, "", "  ") == nil {
+		text = pretty.String()
+	}
+	s.sendEvent(c, TestEvent{Type: "content", Text: text})
+	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+	return nil
 }
 
 // testOpenCodeGoAccountConnection probes the native endpoint for the selected

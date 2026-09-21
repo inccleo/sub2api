@@ -127,7 +127,7 @@ export default {
       anthropic: 'Choose an available Anthropic / Claude group',
       openai: 'Choose an available OpenAI / GPT group',
       domestic: 'Includes DeepSeek, Kimi, Zhipu GLM and MiniMax',
-      other: 'Includes Gemini, Grok, Antigravity, OpenCode and mixed groups'
+      other: 'Includes Gemini, Grok, Antigravity, OpenCode, TypeSafe / Jev and mixed groups'
     },
     selectGroup: 'Select a group',
     statusLabel: 'Status',
@@ -182,7 +182,12 @@ export default {
         codexCli: 'Codex CLI',
         codexCliWs: 'Codex CLI (WebSocket)',
         grokCli: 'Grok CLI',
+        systemOne: 'System One',
         opencode: 'OpenCode',
+      },
+      typesafe: {
+        description: 'Call Jev through the native TypeSafe System One endpoint.',
+        note: 'System One is non-streaming and is not compatible with Chat Completions, Responses, Claude Code, or Codex clients.',
       },
       antigravity: {
         description: 'Configure API access for Antigravity group. Select the configuration method based on your client.',

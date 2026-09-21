@@ -48,6 +48,10 @@
   <svg v-else-if="platform === 'opencode_go'" :class="sizeClass" viewBox="0 0 24 24" fill="currentColor" fill-rule="evenodd">
     <path d="M16 6H8v12h8V6zm4 16H4V2h16v20z" />
   </svg>
+  <svg v-else-if="platform === 'typesafe'" :class="sizeClass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M12 3 4.5 6.5v5.2c0 4.6 3.1 8.6 7.5 9.8 4.4-1.2 7.5-5.2 7.5-9.8V6.5L12 3Z" />
+    <path stroke-linecap="round" stroke-linejoin="round" d="m8.8 12.1 2.1 2.1 4.3-4.4" />
+  </svg>
   <!-- DeepSeek official logo mark (whale) -->
   <svg v-else-if="platform === 'deepseek'" :class="sizeClass" viewBox="0 0 24 24" fill="currentColor">
     <path

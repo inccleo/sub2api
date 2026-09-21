@@ -1,13 +1,32 @@
 package handler
 
 import (
+	"context"
+
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
 	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/google/wire"
 )
+
+// ProvideImageWorkbenchHandler wires both the legacy async image APIs and the
+// image-chat BFF.
+func ProvideImageWorkbenchHandler(apiKeys *service.APIKeyService, auth middleware.APIKeyAuthMiddleware, async *AsyncImageHandler, cfg *config.Config, accounts service.AccountRepository) *ImageWorkbenchHandler {
+	resolver := newAccountImageWorkbenchUpstreamResolver(accounts)
+	h := NewImageWorkbenchHandler(apiKeys, auth, async)
+	h.SetImageChatConfig(cfg)
+	h.SetUpstreamResolver(resolver)
+	if apiKeys != nil {
+		apiKeys.SetImageWorkbenchGroupFilter(func(ctx context.Context, groupID int64) bool {
+			upstream, err := resolver.ResolveImageWorkbenchUpstream(ctx, groupID)
+			return err == nil && upstream != nil && upstream.BaseURL != ""
+		})
+	}
+	return h
+}
 
 // ProvideAdminHandlers creates the AdminHandlers struct
 func ProvideAdminHandlers(
@@ -176,10 +195,12 @@ func ProvideAdminSettingHandler(settingService *service.SettingService, emailSer
 // ProvideHandlers creates the Handlers struct
 func ProvideHandlers(
 	authHandler *AuthHandler,
+	desktopAuthHandler *DesktopAuthHandler,
 	userHandler *UserHandler,
 	apiKeyHandler *APIKeyHandler,
 	usageHandler *UsageHandler,
 	redeemHandler *RedeemHandler,
+	dailyCheckinHandler *DailyCheckinHandler,
 	subscriptionHandler *SubscriptionHandler,
 	announcementHandler *AnnouncementHandler,
 	channelMonitorUserHandler *ChannelMonitorUserHandler,
@@ -195,17 +216,20 @@ func ProvideHandlers(
 	availableChannelHandler *AvailableChannelHandler,
 	modelPlazaHandler *ModelPlazaHandler,
 	asyncImageHandler *AsyncImageHandler,
+	imageWorkbenchHandler *ImageWorkbenchHandler,
 	batchImageHandler *BatchImageHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 	_ *service.OpenAIQuotaAutoResetService,
 ) *Handlers {
 	return &Handlers{
+		DesktopAuth:      desktopAuthHandler,
 		Auth:             authHandler,
 		User:             userHandler,
 		APIKey:           apiKeyHandler,
 		Usage:            usageHandler,
 		Redeem:           redeemHandler,
+		DailyCheckin:     dailyCheckinHandler,
 		Subscription:     subscriptionHandler,
 		Announcement:     announcementHandler,
 		ChannelMonitor:   channelMonitorUserHandler,
@@ -221,6 +245,7 @@ func ProvideHandlers(
 		AvailableChannel: availableChannelHandler,
 		ModelPlaza:       modelPlazaHandler,
 		AsyncImage:       asyncImageHandler,
+		ImageWorkbench:   imageWorkbenchHandler,
 		BatchImage:       batchImageHandler,
 	}
 }
@@ -229,10 +254,12 @@ func ProvideHandlers(
 var ProviderSet = wire.NewSet(
 	// Top-level handlers
 	NewAuthHandler,
+	NewDesktopAuthHandler,
 	NewUserHandler,
 	NewAPIKeyHandler,
 	NewUsageHandler,
 	NewRedeemHandler,
+	NewDailyCheckinHandler,
 	NewSubscriptionHandler,
 	NewAnnouncementHandler,
 	NewChannelMonitorUserHandler,
@@ -247,6 +274,7 @@ var ProviderSet = wire.NewSet(
 	NewAvailableChannelHandler,
 	NewModelPlazaHandler,
 	NewAsyncImageHandler,
+	ProvideImageWorkbenchHandler,
 	ProvideBatchImageHandler,
 
 	// Admin handlers

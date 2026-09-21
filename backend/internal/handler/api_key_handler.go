@@ -133,6 +133,7 @@ func (h *APIKeyHandler) List(c *gin.Context) {
 			filters.GroupID = &gid
 		}
 	}
+	filters.ExcludeNames = []string{service.ImageWorkbenchAPIKeyName}
 
 	keys, result, err := h.apiKeyService.List(c.Request.Context(), subject.UserID, params, filters)
 	if err != nil {
@@ -173,6 +174,10 @@ func (h *APIKeyHandler) GetByID(c *gin.Context) {
 		response.NotFound(c, "API key not found")
 		return
 	}
+	if service.IsImageWorkbenchAPIKey(key) {
+		response.NotFound(c, "API key not found")
+		return
+	}
 
 	response.Success(c, dto.APIKeyFromService(key))
 }
@@ -193,6 +198,10 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 	}
 	if err := validateAPIKeyCreateRequest(req); err != nil {
 		response.BadRequest(c, "Invalid request: numeric limits must be finite and non-negative, and expires_in_days must be greater than zero")
+		return
+	}
+	if req.Name == service.ImageWorkbenchAPIKeyName {
+		response.BadRequest(c, "Reserved API key name")
 		return
 	}
 
@@ -240,6 +249,15 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 		response.BadRequest(c, "Invalid key ID")
 		return
 	}
+	key, err := h.apiKeyService.GetByID(c.Request.Context(), keyID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if key.UserID != subject.UserID || service.IsImageWorkbenchAPIKey(key) {
+		response.NotFound(c, "API key not found")
+		return
+	}
 
 	var req UpdateAPIKeyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -248,6 +266,10 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 	}
 	if err := validateAPIKeyUpdateRequest(req); err != nil {
 		response.BadRequest(c, "Invalid request: numeric limits must be finite and non-negative")
+		return
+	}
+	if req.Name == service.ImageWorkbenchAPIKeyName {
+		response.BadRequest(c, "Reserved API key name")
 		return
 	}
 
@@ -284,13 +306,13 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 		}
 	}
 
-	key, err := h.apiKeyService.Update(c.Request.Context(), keyID, subject.UserID, svcReq)
+	updatedKey, err := h.apiKeyService.Update(c.Request.Context(), keyID, subject.UserID, svcReq)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	response.Success(c, dto.APIKeyFromService(key))
+	response.Success(c, dto.APIKeyFromService(updatedKey))
 }
 
 // Delete handles deleting an API key
@@ -305,6 +327,15 @@ func (h *APIKeyHandler) Delete(c *gin.Context) {
 	keyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid key ID")
+		return
+	}
+	key, err := h.apiKeyService.GetByID(c.Request.Context(), keyID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if key.UserID != subject.UserID || service.IsImageWorkbenchAPIKey(key) {
+		response.NotFound(c, "API key not found")
 		return
 	}
 

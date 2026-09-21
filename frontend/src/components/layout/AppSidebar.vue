@@ -7,25 +7,28 @@
     ]"
   >
     <!-- Logo/Brand -->
-    <div class="sidebar-header" :class="{ 'sidebar-header-collapsed': sidebarCollapsed }">
-      <!-- Custom Logo or Default Logo -->
-      <router-link
-        :to="homePath"
-        class="sidebar-logo flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl shadow-glow transition-opacity hover:opacity-80"
-        @click="handleMenuItemClick(homePath)"
-      >
-        <img v-if="settingsLoaded" :src="siteLogo || '/logo.svg'" alt="Logo" class="h-full w-full object-contain" />
-      </router-link>
-      <div class="sidebar-brand" :class="{ 'sidebar-brand-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">
+    <div
+      class="sidebar-header"
+      :class="sidebarCollapsed ? 'sidebar-header-collapsed' : 'sidebar-header-expanded'"
+    >
+      <div class="flex flex-col items-start justify-center" :class="{ 'w-full': !sidebarCollapsed }">
         <router-link
           :to="homePath"
-          class="sidebar-brand-title text-lg font-bold text-gray-900 transition-colors hover:text-primary-600 dark:text-white dark:hover:text-primary-400"
+          class="sidebar-logo flex items-center justify-center overflow-hidden rounded-lg transition-all hover:opacity-80"
+          :class="sidebarCollapsed ? 'sidebar-logo-collapsed h-5 w-10' : 'sidebar-logo-wide h-12 w-56'"
           @click="handleMenuItemClick(homePath)"
         >
-          {{ siteName }}
+          <img
+            v-if="settingsLoaded"
+            :src="siteLogo || '/logo.svg'"
+            alt="Logo"
+            class="max-h-full max-w-full object-contain"
+            :class="{ 'sidebar-logo-dark': isDark }"
+          />
         </router-link>
-        <!-- Version Badge -->
-        <VersionBadge :version="siteVersion" />
+        <div v-if="!sidebarCollapsed" class="mt-0.5">
+          <VersionBadge :version="siteVersion" />
+        </div>
       </div>
     </div>
 
@@ -119,9 +122,22 @@
             :data-tour="item.path === '/keys' ? 'sidebar-my-keys' : undefined"
             @click="handleMenuItemClick(item.path)"
           >
-            <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
-            <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
-            <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
+            <span class="relative flex-shrink-0">
+              <span v-if="item.iconSvg" class="block h-5 w-5 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
+              <component v-else :is="item.icon" class="h-5 w-5" />
+              <span
+                v-if="item.badge && sidebarCollapsed"
+                class="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white dark:ring-dark-900"
+              />
+            </span>
+            <span
+              class="sidebar-label sidebar-label-with-badge"
+              :class="{ 'sidebar-label-collapsed': sidebarCollapsed }"
+              :aria-hidden="sidebarCollapsed ? 'true' : 'false'"
+            >
+              <span class="min-w-0 truncate">{{ item.label }}</span>
+              <span v-if="item.badge" class="sidebar-new-badge">{{ item.badge }}</span>
+            </span>
           </router-link>
         </div>
       </template>
@@ -139,9 +155,22 @@
             :data-tour="item.path === '/keys' ? 'sidebar-my-keys' : undefined"
             @click="handleMenuItemClick(item.path)"
           >
-            <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
-            <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
-            <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
+            <span class="relative flex-shrink-0">
+              <span v-if="item.iconSvg" class="block h-5 w-5 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
+              <component v-else :is="item.icon" class="h-5 w-5" />
+              <span
+                v-if="item.badge && sidebarCollapsed"
+                class="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white dark:ring-dark-900"
+              />
+            </span>
+            <span
+              class="sidebar-label sidebar-label-with-badge"
+              :class="{ 'sidebar-label-collapsed': sidebarCollapsed }"
+              :aria-hidden="sidebarCollapsed ? 'true' : 'false'"
+            >
+              <span class="min-w-0 truncate">{{ item.label }}</span>
+              <span v-if="item.badge" class="sidebar-new-badge">{{ item.badge }}</span>
+            </span>
           </router-link>
         </div>
       </template>
@@ -219,6 +248,8 @@ interface NavItem {
    * 开关切换时菜单自动更新。
    */
   featureFlag?: () => boolean | undefined
+  /** Optional small badge next to the label (e.g. "NEW" for newly launched features). */
+  badge?: string
 }
 
 // applyFeatureFlags 递归过滤掉 featureFlag() === false 的节点（含子节点）。
@@ -261,7 +292,6 @@ const homePath = computed(() => (isAdmin.value ? '/admin/dashboard' : '/dashboar
 const groupExpandOverrides = ref<Map<string, boolean>>(new Map())
 
 // Site settings from appStore (cached, no flicker)
-const siteName = computed(() => appStore.siteName)
 const siteLogo = computed(() => sanitizeUrl(appStore.siteLogo || '', { allowRelative: true, allowDataUrl: true }))
 const siteVersion = computed(() => appStore.siteVersion)
 const settingsLoaded = computed(() => appStore.publicSettingsLoaded)
@@ -728,6 +758,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
   }
   items.push(
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
+    { path: '/images', label: t('nav.imageWorkbench'), icon: BatchImageIcon, hideInSimpleMode: true, badge: 'NEW' },
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
     { path: '/available-channels', label: t('nav.availableChannels'), icon: ChannelIcon, hideInSimpleMode: true, featureFlag: flagAvailableChannels },
@@ -814,6 +845,7 @@ const adminNavItems = computed((): NavItem[] => {
     },
     { path: '/admin/redeem', label: t('nav.redeemCodes'), icon: TicketIcon, hideInSimpleMode: true },
     { path: '/admin/promo-codes', label: t('nav.promoCodes'), icon: GiftIcon, hideInSimpleMode: true },
+    { path: '/admin/checkins', label: t('nav.dailyCheckins'), icon: GiftIcon, hideInSimpleMode: true },
     {
       path: '/admin/affiliates',
       label: t('nav.affiliateManagement'),
@@ -982,40 +1014,44 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .sidebar-logo {
-  flex: 0 0 2.25rem;
-  min-width: 2.25rem;
+  flex: none;
+  min-width: 0;
+}
+
+.sidebar-logo-wide {
+  width: 14rem;
+  min-width: 14rem;
+}
+
+.sidebar-logo-collapsed {
+  width: 2.5rem;
+  min-width: 2.5rem;
+  justify-content: flex-start;
+}
+
+.sidebar-logo-collapsed img {
+  width: auto;
+  max-width: none;
+  height: 1.25rem;
+}
+
+.sidebar-logo-dark {
+  filter: brightness(2.4) saturate(0.9);
+}
+
+.sidebar-header-expanded {
+  height: 6rem;
+  align-items: flex-start;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
 }
 
 .sidebar-header-collapsed {
   gap: 0;
-  padding-left: 1.125rem;
-  padding-right: 1.125rem;
-}
-
-.sidebar-brand {
-  min-width: 0;
-  flex: 1 1 auto;
-  white-space: nowrap;
-  transition:
-    max-width 0.22s ease,
-    opacity 0.14s ease,
-    transform 0.14s ease;
-  max-width: 12rem;
-}
-
-.sidebar-brand-collapsed {
-  max-width: 0;
-  overflow: hidden;
-  opacity: 0;
-  transform: translateX(-4px);
-  pointer-events: none;
-}
-
-.sidebar-brand-title {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  padding-left: 1rem;
+  padding-right: 1rem;
 }
 
 .sidebar-link-collapsed {
@@ -1095,6 +1131,25 @@ onBeforeUnmount(() => {
   opacity: 0;
   transform: translateX(-4px);
   pointer-events: none;
+}
+
+.sidebar-label-with-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  overflow: hidden;
+}
+
+.sidebar-new-badge {
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background: rgb(239 68 68);
+  padding: 0.05rem 0.35rem;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  color: #fff;
 }
 
 /* Custom SVG icon in sidebar: constrain size without overriding uploaded SVG colors */

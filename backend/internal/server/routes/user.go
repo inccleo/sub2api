@@ -82,6 +82,15 @@ func RegisterUserRoutes(
 			keys.DELETE("/:id", h.APIKey.Delete)
 		}
 
+		imageWorkbench := authenticated.Group("/image-workbench")
+		imageWorkbench.Use(middleware.ClientRequestID())
+		{
+			imageWorkbench.GET("/config", h.ImageWorkbench.Config)
+			imageWorkbench.GET("/models", h.ImageWorkbench.Models)
+			imageWorkbench.POST("/tasks", middleware.RequestBodyLimit(handler.ImageWorkbenchMaxRequestBody), h.ImageWorkbench.Submit)
+			imageWorkbench.GET("/tasks/:task_id", h.ImageWorkbench.Get)
+		}
+
 		// 用户可用分组（非管理员接口）
 		groups := authenticated.Group("/groups")
 		{
@@ -124,6 +133,14 @@ func RegisterUserRoutes(
 		{
 			redeem.POST("", h.Redeem.Redeem)
 			redeem.GET("/history", h.Redeem.GetHistory)
+		}
+
+		// 每日签到
+		checkin := authenticated.Group("/checkin")
+		{
+			checkin.GET("/status", h.DailyCheckin.GetStatus)
+			checkin.GET("/history", h.DailyCheckin.GetHistory)
+			checkin.POST("", h.DailyCheckin.Checkin)
 		}
 
 		// 用户订阅

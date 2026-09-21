@@ -166,6 +166,8 @@ export default {
     dashboard: 'Dashboard',
     announcements: 'Announcements',
     apiKeys: 'API Keys',
+    imageWorkbench: 'Image Chat',
+    dailyCheckins: 'Check-ins',
     batchImage: 'Batch Images',
     usage: 'Usage',
     redeem: 'Redeem',

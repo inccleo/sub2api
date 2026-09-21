@@ -6,17 +6,20 @@ describe('updateFavicon', () => {
     document.head.innerHTML = '<link rel="icon" href="/logo.svg">'
   })
 
-  it('replaces the default favicon with the configured logo', () => {
-    updateFavicon('https://example.com/custom-logo.png')
-
-    const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
-    expect(link?.href).toBe('https://example.com/custom-logo.png')
-  })
-
-  it('ignores unsafe logo URLs', () => {
-    updateFavicon('javascript:alert(1)')
+  it('uses the dedicated square brand mark by default', () => {
+    updateFavicon()
 
     const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
     expect(link?.getAttribute('href')).toBe('/logo.svg')
+    expect(link?.type).toBe('image/svg+xml')
+  })
+
+  it('creates the dedicated favicon when it is missing', () => {
+    document.head.innerHTML = ''
+    updateFavicon()
+
+    const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
+    expect(link?.getAttribute('href')).toBe('/logo.svg')
+    expect(link?.type).toBe('image/svg+xml')
   })
 })

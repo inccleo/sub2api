@@ -65,7 +65,22 @@ const DefaultUpstreamResponseReadMaxBytes int64 = 128 * 1024 * 1024
 // 可通过 gateway.models_list_read_max_bytes 配置项覆盖。
 const DefaultModelsListReadMaxBytes int64 = 8 * 1024 * 1024
 
+type DesktopAuthConfig struct {
+	Enabled bool `mapstructure:"enabled"`
+}
+
+// ImageChatConfig configures the authenticated image conversation BFF.
+// The downstream key stays server-side and is never returned to the browser.
+type ImageChatConfig struct {
+	Enabled        bool   `mapstructure:"enabled"`
+	BaseURL        string `mapstructure:"base_url"`
+	APIKey         string `mapstructure:"api_key"`
+	TimeoutSeconds int    `mapstructure:"timeout_seconds"`
+}
+
 type Config struct {
+	DesktopAuth             DesktopAuthConfig             `mapstructure:"desktop_auth"`
+	ImageChat               ImageChatConfig               `mapstructure:"image_chat"`
 	Server                  ServerConfig                  `mapstructure:"server"`
 	Log                     LogConfig                     `mapstructure:"log"`
 	CORS                    CORSConfig                    `mapstructure:"cors"`
@@ -2056,6 +2071,11 @@ func setDefaults() {
 
 	// WebAuthn / Passkeys are opt-in because every deployment must explicitly
 	// declare its relying-party domain and trusted browser origins.
+	viper.SetDefault("desktop_auth.enabled", false)
+	viper.SetDefault("image_chat.enabled", true)
+	viper.SetDefault("image_chat.base_url", "http://127.0.0.1:3002")
+	viper.SetDefault("image_chat.api_key", "")
+	viper.SetDefault("image_chat.timeout_seconds", 300)
 	viper.SetDefault("webauthn.enabled", false)
 	viper.SetDefault("webauthn.rp_display_name", "Sub2API")
 	viper.SetDefault("webauthn.rp_id", "")

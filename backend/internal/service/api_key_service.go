@@ -309,6 +309,25 @@ type APIKeyService struct {
 	authInvalidationFailures  atomic.Uint64
 	lastUsedTouchL1           sync.Map // keyID -> nextAllowedAt(time.Time)
 	lastUsedTouchSF           singleflight.Group
+	workbenchKeySF            singleflight.Group
+	// imageWorkbenchGroupFilter 由上层注入，用于判定某个分组能否承接在线图片
+	// 工作台（即是否存在指向 chatgpt2api 兼容上游的可调度账号）。为 nil 时
+	// 退化为按 sort_order 选择，保持历史行为。
+	imageWorkbenchGroupFilter ImageWorkbenchGroupFilter
+}
+
+// ImageWorkbenchGroupFilter 报告分组是否能承接在线图片工作台。
+type ImageWorkbenchGroupFilter func(ctx context.Context, groupID int64) bool
+
+const ImageWorkbenchAPIKeyName = "__image_workbench__"
+
+var ErrImageWorkbenchUnavailable = infraerrors.ServiceUnavailable(
+	"IMAGE_WORKBENCH_UNAVAILABLE",
+	"no image-enabled OpenAI group is available for this account",
+)
+
+func IsImageWorkbenchAPIKey(apiKey *APIKey) bool {
+	return apiKey != nil && apiKey.Name == ImageWorkbenchAPIKeyName
 }
 
 type APIKeyAuthLookupMetrics struct {
@@ -367,6 +386,14 @@ func (s *APIKeyService) SetRateLimitCacheInvalidator(inv RateLimitCacheInvalidat
 
 func (s *APIKeyService) SetConcurrencyService(concurrencyService *ConcurrencyService) {
 	s.concurrencyService = concurrencyService
+}
+
+// SetImageWorkbenchGroupFilter 注入在线图片工作台的分组准入判定。
+func (s *APIKeyService) SetImageWorkbenchGroupFilter(filter ImageWorkbenchGroupFilter) {
+	if s == nil {
+		return
+	}
+	s.imageWorkbenchGroupFilter = filter
 }
 
 func (s *APIKeyService) compileAPIKeyIPRules(apiKey *APIKey) {
@@ -1069,6 +1096,145 @@ func (s *APIKeyService) SearchAPIKeys(ctx context.Context, userID int64, keyword
 		return nil, fmt.Errorf("search api keys: %w", err)
 	}
 	return keys, nil
+}
+
+func (s *APIKeyService) selectImageWorkbenchGroup(ctx context.Context, userID int64) (map[int64]struct{}, *Group, error) {
+	groups, err := s.GetAvailableGroups(ctx, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	candidates := make([]*Group, 0, len(groups))
+	for i := range groups {
+		group := &groups[i]
+		if group.Platform != PlatformOpenAI || !group.AllowImageGeneration || !group.IsActive() {
+			continue
+		}
+		candidates = append(candidates, group)
+	}
+	if len(candidates) == 0 {
+		return nil, nil, ErrImageWorkbenchUnavailable
+	}
+
+	eligible := make([]*Group, 0, len(candidates))
+	for _, group := range candidates {
+		if s.imageWorkbenchGroupEligible(ctx, group.ID) {
+			eligible = append(eligible, group)
+		}
+	}
+	selectedPool, availablePool := eligible, eligible
+	if len(eligible) == 0 {
+		selectedPool, availablePool = candidates, candidates
+	}
+
+	availableGroupIDs := make(map[int64]struct{}, len(availablePool))
+	for _, group := range availablePool {
+		availableGroupIDs[group.ID] = struct{}{}
+	}
+
+	var selected *Group
+	for _, group := range selectedPool {
+		if preferImageWorkbenchGroup(group, selected) {
+			selected = group
+		}
+	}
+	if selected == nil {
+		return nil, nil, ErrImageWorkbenchUnavailable
+	}
+	return availableGroupIDs, selected, nil
+}
+
+func preferImageWorkbenchGroup(candidate, current *Group) bool {
+	if candidate == nil {
+		return false
+	}
+	if current == nil {
+		return true
+	}
+	return candidate.SortOrder < current.SortOrder ||
+		(candidate.SortOrder == current.SortOrder && candidate.ID < current.ID)
+}
+
+func (s *APIKeyService) imageWorkbenchGroupEligible(ctx context.Context, groupID int64) bool {
+	if s == nil || s.imageWorkbenchGroupFilter == nil {
+		return true
+	}
+	return s.imageWorkbenchGroupFilter(ctx, groupID)
+}
+
+func (s *APIKeyService) GetImageWorkbenchGroupID(ctx context.Context, userID int64) (int64, error) {
+	_, selected, err := s.selectImageWorkbenchGroup(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+	return selected.ID, nil
+}
+
+func (s *APIKeyService) GetOrCreateImageWorkbenchKey(ctx context.Context, userID int64) (*APIKey, error) {
+	value, err, _ := s.workbenchKeySF.Do(strconv.FormatInt(userID, 10), func() (any, error) {
+		availableGroupIDs, selected, err := s.selectImageWorkbenchGroup(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+
+		keys, err := s.SearchAPIKeys(ctx, userID, ImageWorkbenchAPIKeyName, 10)
+		if err != nil {
+			return nil, err
+		}
+		for i := range keys {
+			if keys[i].Name != ImageWorkbenchAPIKeyName {
+				continue
+			}
+			key, err := s.GetByID(ctx, keys[i].ID)
+			if err != nil {
+				return nil, err
+			}
+			if !strings.HasPrefix(key.Key, imageWorkbenchCredentialPrefix(s.cfg)) {
+				legacyName := fmt.Sprintf("image-workbench-legacy-%d", key.ID)
+				if _, err := s.Update(ctx, key.ID, userID, UpdateAPIKeyRequest{Name: &legacyName}); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			if key.GroupID != nil {
+				if _, ok := availableGroupIDs[*key.GroupID]; ok && key.Status == StatusActive {
+					return key, nil
+				}
+			}
+			status := StatusActive
+			return s.Update(ctx, key.ID, userID, UpdateAPIKeyRequest{GroupID: &selected.ID, Status: &status})
+		}
+
+		credential, err := s.GenerateKey()
+		if err != nil {
+			return nil, err
+		}
+		credential = imageWorkbenchCredentialPrefix(s.cfg) + strings.TrimPrefix(credential, apiKeyPrefix(s.cfg))
+		return s.Create(ctx, userID, CreateAPIKeyRequest{
+			Name:      ImageWorkbenchAPIKeyName,
+			GroupID:   &selected.ID,
+			CustomKey: &credential,
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	key, ok := value.(*APIKey)
+	if !ok || key == nil {
+		return nil, ErrImageWorkbenchUnavailable
+	}
+	return key, nil
+}
+
+func apiKeyPrefix(cfg *config.Config) string {
+	if cfg != nil && cfg.Default.APIKeyPrefix != "" {
+		return cfg.Default.APIKeyPrefix
+	}
+	return "sk-"
+}
+
+func imageWorkbenchCredentialPrefix(cfg *config.Config) string {
+	return apiKeyPrefix(cfg) + "iwb-"
 }
 
 // GetUserGroupVisibility 返回 user_allowed_groups 授权及有效订阅的分组 ID 集合，

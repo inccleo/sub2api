@@ -822,6 +822,7 @@ func ProvideAPIKeyService(
 
 // ProviderSet is the Wire provider set for all services
 var ProviderSet = wire.NewSet(
+	NewDesktopAuthService,
 	// Core services
 	ProvideAuthService,
 	NewPasskeyService,
@@ -834,6 +835,7 @@ var ProviderSet = wire.NewSet(
 	NewAccountService,
 	NewProxyService,
 	NewRedeemService,
+	NewDailyCheckinService,
 	NewPromoService,
 	NewUsageService,
 	NewDashboardService,

@@ -1,0 +1,113 @@
+name: Custom release
+
+on:
+  push:
+    tags:
+      # Fourth component distinguishes a fork patch from the matching upstream release.
+      # Example: v0.1.162.1 is this fork's first patch over upstream v0.1.162.
+      - 'v*.*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing custom tag to release (for example v0.1.162.1)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release-linux-amd64:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve and validate release tag
+        id: release
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG:-$REF_TAG}"
+          if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Custom releases must use vMAJOR.MINOR.PATCH.CUSTOM (for example v0.1.162.1)." >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the tagged source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@b0f76dfb45f55f8421693e4803ac7bb65143bd34 # v6
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache-dependency-path: backend/go.sum
+
+      - name: Run backend unit tests
+        working-directory: backend
+        run: go test -tags=unit ./internal/service
+
+      - name: Build Linux amd64 archive and checksum
+        id: archive
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist release-assets
+          commit="$(git rev-parse HEAD)"
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -C backend \
+            -tags=embed \
+            -trimpath \
+            -ldflags="-s -w -X main.Version=${VERSION} -X main.Commit=${commit} -X main.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ) -X main.BuildType=release" \
+            -o ../dist/sub2api \
+            ./cmd/server
+          asset="sub2api_${TAG}_linux_amd64.tar.gz"
+          tar -C dist -czf "release-assets/${asset}" sub2api
+          (
+            cd release-assets
+            sha256sum "$asset" > checksums.txt
+          )
+          printf '{\n  "tag": "%s",\n  "version": "%s",\n  "commit": "%s",\n  "upstream": "Wei-Shaw/sub2api"\n}\n' \
+            "$TAG" "$VERSION" "$commit" > release-assets/release-manifest.json
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-assets/* --clobber
+          else
+            gh release create "$TAG" release-assets/* \
+              --title "Sub2API custom ${VERSION}" \
+              --notes "Custom fork release. Deploy only after reviewing the matching upstream sync and this tag's commit." \
+              --latest
+          fi

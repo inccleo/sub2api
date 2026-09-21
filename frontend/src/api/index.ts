@@ -14,6 +14,12 @@ export { keysAPI } from './keys'
 export { usageAPI } from './usage'
 export { userAPI } from './user'
 export { redeemAPI, type RedeemHistoryItem } from './redeem'
+export {
+  dailyCheckinAPI,
+  type DailyCheckinHistoryItem,
+  type DailyCheckinResult,
+  type DailyCheckinStatus,
+} from './dailyCheckin'
 export { paymentAPI } from './payment'
 export { userGroupsAPI } from './groups'
 export { userChannelsAPI } from './channels'

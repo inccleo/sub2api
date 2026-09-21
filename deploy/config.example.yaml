@@ -73,6 +73,23 @@ server:
     max_upload_buffer_per_stream: 524288
 
 # =============================================================================
+# Desktop OAuth Configuration
+# 桌面授权配置
+# =============================================================================
+# Desktop OAuth is opt-in. Keep disabled unless the first-party desktop app is used.
+# 桌面授权默认关闭。只有第一方桌面应用需要时才打开。
+desktop_auth:
+  enabled: false
+
+# Image Workbench model catalog fallback (chatgpt2api). Does not affect image generation routing.
+# 对话画图模型目录兜底（chatgpt2api）。不影响生图路由。
+image_chat:
+  enabled: true
+  base_url: http://127.0.0.1:3002
+  api_key: ""
+  timeout_seconds: 300
+
+# =============================================================================
 # WebAuthn / Passkey Configuration
 # WebAuthn / Passkey 配置
 # =============================================================================

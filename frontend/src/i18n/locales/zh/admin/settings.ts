@@ -420,6 +420,17 @@ export default {
         defaultPlatformQuotasHint: '新用户注册时自动获得这里配置的限额；已有用户不受影响。留空 = 该平台该窗口不限制。',
         platformQuotaNotice: '月限额为 30 天滚动窗口，非自然月',
       },
+
+      dailyCheckin: {
+        title: '每日签到',
+        description: '用户每日签到领取余额，连续签到每 7 天可获得一次额外奖励',
+        enabled: '开启每日签到',
+        enabledHint: '开启后，普通用户可在顶部栏看到签到入口；完成充值或兑换后才能领取奖励',
+        dailyReward: '每日基础额度（USD）',
+        dailyRewardHint: '每次有效签到固定增加的账户余额',
+        weeklyBonus: '连续 7 天额外额度（USD）',
+        weeklyBonusHint: '第 7、14、21…个连续签到日额外增加的账户余额',
+      },
       platformQuota: {
         platform:    '平台',
         daily:       '日限额 (USD)',

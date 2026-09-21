@@ -373,6 +373,52 @@ export default {
       failedToUpdate: 'Failed to update redeem code'
     },
 
+
+
+    // Daily Check-ins
+    checkins: {
+      title: 'Check-in Records',
+      description: 'View user daily check-ins and streak bonus payouts',
+      searchPlaceholder: 'Search email / username / user ID',
+      startDate: 'Start date',
+      endDate: 'End date',
+      loadFailed: 'Failed to load check-in records',
+      statsLoadFailed: 'Failed to load check-in stats',
+      timezoneHint: 'Stats and filters use server timezone {tz}',
+      stats: {
+        todayCheckins: 'Today',
+        yesterdayCheckins: 'Yesterday',
+        last7DaysCheckins: 'Last 7 Days',
+        totalCheckins: 'Total Check-ins',
+        uniqueUsers: 'Unique Users',
+        todayReward: 'Today Rewards',
+        yesterdayReward: 'Yesterday Rewards',
+        last7DaysReward: 'Last 7 Days Rewards',
+        totalReward: 'Total Rewards',
+        totalBonus: 'Total Streak Bonus',
+        todayBonusCount: 'Today Streak Bonuses',
+        rewardSuffix: '${amount} rewarded',
+        times: '{count} times',
+      },
+      presets: {
+        all: 'All',
+        today: 'Today',
+        yesterday: 'Yesterday',
+        last7Days: 'Last 7 Days',
+        thisMonth: 'This Month',
+        custom: 'Custom',
+      },
+      columns: {
+        user: 'User',
+        checkinDate: 'Check-in Date',
+        streak: 'Streak',
+        baseReward: 'Base Reward',
+        bonusReward: 'Streak Bonus',
+        totalReward: 'Total Reward',
+        createdAt: 'Claimed At',
+      },
+    },
+
     // Announcements
     announcements: {
       title: 'Announcements',

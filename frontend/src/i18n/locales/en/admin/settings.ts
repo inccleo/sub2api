@@ -425,6 +425,17 @@ export default {
         defaultPlatformQuotasHint: 'Applied to new users on signup; existing users are not affected. Leave blank = no limit for that platform and window.',
         platformQuotaNotice: 'Monthly quota uses a 30-day rolling window, not a calendar month.',
       },
+
+      dailyCheckin: {
+        title: 'Daily Check-in',
+        description: 'Let users claim balance every day, with an extra reward for each 7-day streak',
+        enabled: 'Enable daily check-in',
+        enabledHint: 'When enabled, regular users can see the check-in entry in the top navigation bar; claiming requires a completed recharge or redeem',
+        dailyReward: 'Daily base reward (USD)',
+        dailyRewardHint: 'Fixed balance credited for each valid daily check-in',
+        weeklyBonus: '7-day streak bonus (USD)',
+        weeklyBonusHint: 'Extra balance credited on the 7th, 14th, 21st… consecutive day',
+      },
       platformQuota: {
         platform:    'Platform',
         daily:       'Daily (USD)',

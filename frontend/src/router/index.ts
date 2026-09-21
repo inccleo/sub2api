@@ -18,6 +18,12 @@ import { resolveRouteDocumentTitle } from './title'
  * Route definitions with lazy loading
  */
 const routes: RouteRecordRaw[] = [
+  {
+    path: '/oauth/authorize',
+    name: 'DesktopAuthorize',
+    component: () => import('@/views/auth/DesktopAuthorizeView.vue'),
+    meta: { requiresAuth: true, title: 'Authorize desktop app', titleKey: 'desktopAuth.title' }
+  },
   // ==================== Setup Routes ====================
   {
     path: '/setup',
@@ -226,6 +232,19 @@ const routes: RouteRecordRaw[] = [
       title: 'Batch Image Guide',
       titleKey: 'batchImageGuide.title',
       descriptionKey: 'batchImageGuide.description'
+    }
+  },
+  {
+    path: '/images',
+    name: 'ImageWorkbench',
+    component: () => import('@/views/user/ImageWorkbenchView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Image Studio',
+      titleKey: 'imageWorkbench.title',
+      descriptionKey: 'imageWorkbench.description',
+      fillHeight: true
     }
   },
   {
@@ -595,6 +614,18 @@ const routes: RouteRecordRaw[] = [
       title: 'Promo Code Management',
       titleKey: 'admin.promo.title',
       descriptionKey: 'admin.promo.description'
+    }
+  },
+  {
+    path: '/admin/checkins',
+    name: 'AdminCheckins',
+    component: () => import('@/views/admin/CheckinsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Daily Check-in Records',
+      titleKey: 'admin.checkins.title',
+      descriptionKey: 'admin.checkins.description'
     }
   },
   {

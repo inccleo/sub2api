@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*'
+      # Four-part tags belong to this fork's Custom release workflow.
+      - '!v*.*.*.*'
   workflow_dispatch:
     inputs:
       tag:
@@ -41,6 +43,15 @@ jobs:
           else
             VERSION=${GITHUB_REF#refs/tags/v}
           fi
+          tag="v${VERSION}"
+          if [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Four-part custom tags must use the Custom release workflow." >&2
+            exit 1
+          fi
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "Release tags must look like vMAJOR.MINOR.PATCH." >&2
+            exit 1
+          }
           echo "$VERSION" > backend/cmd/server/VERSION
           echo "Updated VERSION file to: $VERSION"
 

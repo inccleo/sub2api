@@ -10,7 +10,7 @@
    - `stash@{0}: wip: local Makefile/dev-compose/memory before ranxi parallel eval`
    - 内容：`backend/Makefile` 的 `run` target、`docker-compose.dev.yml`、`memory/2026-08-14-openai-image-octet-stream-data-url.md`
 2. `sub2api/` 的 `custom-main` 已 fast-forward 到 `origin/custom-main`。
-3. ranxi 已单独 clone 到 `/Users/leo/Desktop/topapi/sub2api-ranxi`，固定 tag `v2.7.7`（detached HEAD `cee3c547`）。
+3. ranxi 已单独 clone 到 `/Users/leo/Desktop/topapi/sub2api`，固定 tag `v2.7.7`（detached HEAD `cee3c547`）。
 
 ## 对照基线
 

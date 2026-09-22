@@ -63,10 +63,13 @@ func PrepareLegacy(ctx context.Context, dataDir, configPath, cachePath, binaryPa
 		}
 		names[name] = true
 	}
-	// Node display names may contain provider-specific private information.
+	labels := map[string]string{}
 	for i, node := range nodes.Proxies {
+		name, _ := node["name"].(string)
 		delete(node, "dialer-proxy")
-		node["name"] = fmt.Sprintf("migrated-node-%d", i+1)
+		nodeID := fmt.Sprintf("migrated-node-%d", i+1)
+		node["name"] = nodeID
+		labels[nodeID] = sanitizeNodeDisplayName(name)
 	}
 	binary, err := readBoundedFile(binaryPath, 192<<20)
 	if err != nil {
@@ -84,7 +87,7 @@ func PrepareLegacy(ctx context.Context, dataDir, configPath, cachePath, binaryPa
 	if _, err = rand.Read(secret); err != nil {
 		return errors.New("cannot generate secret")
 	}
-	snapshot := saved{URLs: urls, Nodes: nodes.Proxies, Secret: hex.EncodeToString(secret)}
+	snapshot := saved{URLs: urls, Nodes: nodes.Proxies, NodeNames: labels, Secret: hex.EncodeToString(secret)}
 	manager := &Manager{dir: stage, client: &http.Client{Timeout: 30 * time.Second}}
 	payload, err := manager.config(snapshot)
 	if err != nil {

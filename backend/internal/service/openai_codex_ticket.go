@@ -190,8 +190,14 @@ func (s *OpenAIGatewayService) openAICodexTicketConfig() config.OpenAICodexTicke
 		cfg.Models = []string{openAICodexTicketDefaultModel, openAICodexTicketDefaultSolModel}
 	}
 	if s != nil && s.settingService != nil {
-		cfg.Models = s.settingService.GetOpenAICodexTicketModels(context.Background(), cfg.Models)
-		cfg.FailClosed = s.settingService.GetOpenAICodexTicketFailClosed(context.Background())
+		ctx := context.Background()
+		cfg.Models = s.settingService.GetOpenAICodexTicketModels(ctx, cfg.Models)
+		cfg.FailClosed = s.settingService.GetOpenAICodexTicketFailClosed(ctx)
+		cfg.HarvestProbeIntervalSeconds = s.settingService.GetOpenAICodexTicketProbeIntervalSeconds(ctx, cfg.HarvestProbeIntervalSeconds)
+		cfg.HarvestCooldownSeconds = s.settingService.GetOpenAICodexTicketCooldownSeconds(ctx, cfg.HarvestCooldownSeconds)
+		cfg.MaxProbesPerRound = s.settingService.GetOpenAICodexTicketMaxProbesPerRound(ctx, cfg.MaxProbesPerRound)
+		cfg.HarvestAttemptTimeoutSeconds = s.settingService.GetOpenAICodexTicketAttemptTimeoutSeconds(ctx, cfg.HarvestAttemptTimeoutSeconds)
+		cfg.RefreshBeforeSeconds = s.settingService.GetOpenAICodexTicketRefreshBeforeSeconds(ctx, cfg.RefreshBeforeSeconds)
 	}
 	return cfg
 }
@@ -429,8 +435,14 @@ func parseOpenAICodexTicketFromAny(accountID int64, model string, raw any) *open
 }
 
 func (s *OpenAIGatewayService) storeOpenAICodexTicket(ctx context.Context, account *Account, ticket *openAICodexTicket) {
+	// Automatic harvest keeps the existing memory-first behavior. Persistence
+	// failures are logged by the shared implementation below.
+	_ = s.storeOpenAICodexTicketPersisted(ctx, account, ticket)
+}
+
+func (s *OpenAIGatewayService) storeOpenAICodexTicketPersisted(ctx context.Context, account *Account, ticket *openAICodexTicket) error {
 	if s == nil || account == nil || ticket == nil || account.ID <= 0 {
-		return
+		return errors.New("invalid Codex ticket store request")
 	}
 	incoming := *ticket
 	standby := false
@@ -447,9 +459,8 @@ func (s *OpenAIGatewayService) storeOpenAICodexTicket(ctx context.Context, accou
 	ticket.Model = model
 	ticket.AccountID = account.ID
 	s.openaiCodexTickets.Store(openAICodexTicketKey(account.ID, model), ticket)
-	recordCodexHarvestTicketStore(account, &incoming, standby)
 	if s.accountRepo == nil {
-		return
+		return errors.New("account repository unavailable")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -461,7 +472,10 @@ func (s *OpenAIGatewayService) storeOpenAICodexTicket(ctx context.Context, accou
 			zap.String("model", model),
 			zap.Error(err),
 		)
+		return err
 	}
+	recordCodexHarvestTicketStore(account, &incoming, standby)
+	return nil
 }
 
 // applyOpenAICodexTicket 在出站请求上覆盖 x-codex-turn-state。
@@ -480,7 +494,7 @@ func (s *OpenAIGatewayService) applyOpenAICodexTicket(ctx context.Context, accou
 		if !cfg.FailClosed {
 			return nil
 		}
-		return ErrOpenAICodexTicketUnavailable
+		return denyOpenAITicket()
 	}
 	ticket := s.lookupOpenAICodexTicket(account, model)
 	if ticket.valid(time.Now(), openAICodexTicketTargetLength(account, cfg)) {
@@ -490,7 +504,7 @@ func (s *OpenAIGatewayService) applyOpenAICodexTicket(ctx context.Context, accou
 	if !cfg.FailClosed {
 		return nil
 	}
-	return ErrOpenAICodexTicketUnavailable
+	return denyOpenAITicket()
 }
 
 // openAICodexTicketOutboundModel 预测本请求真正出站的模型名，也就是
@@ -803,15 +817,36 @@ func (s *OpenAIGatewayService) StopOpenAICodexTicketHarvester() {
 	}
 }
 
+// Bound admin-triggered rounds without delaying a wake until the normal probe
+// interval. This does not change per-account cooldowns or probe limits.
+const openAICodexTicketWakeMinInterval = time.Second
+
 func (s *OpenAIGatewayService) openAICodexTicketHarvestLoop(ctx context.Context) {
 	timer := time.NewTimer(0)
 	defer timer.Stop()
+	wake := s.settingService.codexHarvestWakeups()
+	var lastRound time.Time
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-wake:
+			// Execute all work on this single loop. A buffered wake received
+			// during a probe is handled after that round, never concurrently.
+			delay := time.Until(lastRound.Add(openAICodexTicketWakeMinInterval))
+			if delay < 0 {
+				delay = 0
+			}
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(delay)
 		case <-timer.C:
 			s.refreshOpenAICodexTickets(ctx)
+			lastRound = time.Now()
 			timer.Reset(time.Duration(s.openAICodexTicketConfig().HarvestProbeIntervalSeconds) * time.Second)
 		}
 	}
@@ -824,7 +859,7 @@ func (s *OpenAIGatewayService) refreshOpenAICodexTickets(ctx context.Context) {
 	if s == nil || s.accountRepo == nil || ctx.Err() != nil || !s.openAICodexTicketEnabledContext(ctx) {
 		return
 	}
-	observeCodexHarvestSidecar(ctx)
+	observeCodexHarvestProxy(ctx, s.openAICodexTicketHarvestProxyURLContext(ctx))
 	accounts, err := s.accountRepo.ListByPlatform(ctx, PlatformOpenAI)
 	if err != nil {
 		logger.L().Warn("openai_codex_ticket list accounts failed", zap.Error(err))
@@ -964,7 +999,7 @@ func (s *OpenAIGatewayService) probeOnceOpenAICodexTicket(ctx context.Context, a
 		length, blocks := 0, 0
 		expectedLength := openAICodexTicketTargetLength(account, cfg)
 		expectedBlocks := openAICodexTicketExpectedBlocks(account)
-		stopWatch := watchCodexHarvestExit()
+		stopWatch := watchCodexHarvestExit(proxyURL)
 		defer func() {
 			node := stopWatch()
 			s.recordCodexProbe(ctx, account, model, result, httpStatus)

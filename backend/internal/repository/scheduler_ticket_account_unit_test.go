@@ -127,7 +127,7 @@ func TestSchedulerTicketRedisToGateway(t *testing.T) {
 	repo := &ticketRoutingRepo{account: account}
 	snapshot := service.NewSchedulerSnapshotService(cache, nil, repo, nil, cfg)
 	gateway := service.NewOpenAIGatewayService(
-		repo, nil, nil, nil, nil, nil, nil, cfg, snapshot,
+		repo, nil, nil, nil, nil, nil, nil, nil, cfg, snapshot,
 		service.NewConcurrencyService(ticketRoutingConcurrency{}),
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 	)

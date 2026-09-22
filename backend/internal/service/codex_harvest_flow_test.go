@@ -2,14 +2,67 @@ package service
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/mihomo"
 	"github.com/stretchr/testify/require"
 )
+
+func TestHarvestFlowResolvesSubscriptionNameWithoutChangingEventID(t *testing.T) {
+	resetCodexHarvestFlow()
+	t.Cleanup(resetCodexHarvestFlow)
+	dir := t.TempDir()
+	t.Setenv("DATA_DIR", dir)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"node_names":{"node-test":"日本 东京 01"}}`), 0600))
+	m := mihomo.New(dir)
+	t.Cleanup(m.Close)
+	recordCodexHarvestNode("node-test", "LoadBalance", 1)
+	snapshot := BuildCodexHarvestFlow(context.Background(), &config.Config{Gateway: config.GatewayConfig{OpenAICodexTicket: config.OpenAICodexTicketConfig{HarvestProxyURL: mihomo.Endpoint}}}, nil, nil)
+	require.Equal(t, "node-test", snapshot.Events[0].Node)
+	require.Equal(t, "日本 东京 01", snapshot.Events[0].NodeName)
+	require.Equal(t, "node-test", snapshot.Stages[0].Node)
+	require.Equal(t, "日本 东京 01", snapshot.Stages[0].NodeName)
+}
+
+func TestExternalHarvestProxyDoesNotQueryOrInheritSidecar(t *testing.T) {
+	resetCodexHarvestFlow()
+	t.Cleanup(resetCodexHarvestFlow)
+	var queries atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		queries.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	sidecarControllerCache.Store(&cachedSidecarController{until: time.Now().Add(time.Hour), controller: server.URL})
+	t.Cleanup(func() { sidecarControllerCache.Store(nil) })
+	recordCodexHarvestNode("previous-mihomo-node", "LoadBalance", 1)
+	for _, proxy := range []string{"http://user:password@residential.example:8080", ""} {
+		snapshot := BuildCodexHarvestFlow(context.Background(), &config.Config{Gateway: config.GatewayConfig{OpenAICodexTicket: config.OpenAICodexTicketConfig{HarvestProxyURL: proxy}}}, nil, nil)
+		require.Empty(t, snapshot.Sidecar.Error)
+		require.Empty(t, snapshot.Sidecar.Now)
+		require.Empty(t, snapshot.Stages[0].Node)
+		require.NotEqual(t, "fail", snapshot.Stages[0].Status)
+		require.False(t, snapshot.Sidecar.Reachable, "configuration is not a health probe")
+		require.Empty(t, watchCodexHarvestExit(proxy)())
+		if proxy == "" {
+			require.Equal(t, "unconfigured", snapshot.Sidecar.Mode)
+		} else {
+			require.Equal(t, "external", snapshot.Sidecar.Mode)
+		}
+	}
+	require.Zero(t, queries.Load())
+	local := observeCodexHarvestProxy(context.Background(), mihomo.Endpoint)
+	require.Equal(t, "mihomo", local.Mode)
+	require.NotEmpty(t, local.Error, "a selected but failing local sidecar still reports its error")
+	require.Positive(t, queries.Load())
+}
 
 func TestCodexHarvestFlowRecordsProbeTicketAndSelect(t *testing.T) {
 	resetCodexHarvestFlow()

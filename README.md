@@ -23,13 +23,13 @@
 
 ## 社区交流群
 
-欢迎正在部署、使用或维护 Sub2API 的朋友加入微信群「中转技术交流」，交流部署实践、协议兼容、出口代理和功能改进。也欢迎参与问题复现、测试、文档补充和 Pull Request，一起维护这个独立分支。
+欢迎正在部署、使用或维护 Sub2API 的朋友加入 QQ 群「中转技术交流」（群号 **1004036018**），交流部署实践、协议兼容、出口代理和功能改进。也欢迎参与问题复现、测试、文档补充和 Pull Request，一起维护这个独立分支。
 
 <p align="center">
-  <img src="assets/community/wechat-relay-tech-group.jpg" alt="微信群：中转技术交流" width="420" />
+  <img src="assets/community/qq-relay-tech-group.png" alt="QQ 群：中转技术交流，群号 1004036018" width="420" />
 </p>
 
-二维码有效期至 **2026-09-26**。过期后请查看 `production` 分支 README 中的最新二维码。需要长期留档、报告问题或讨论具体改动时，请使用 [Issues](https://github.com/ranxi2001/sub2api/issues)。
+二维码长期有效。需要长期留档、报告问题或讨论具体改动时，请使用 [Issues](https://github.com/ranxi2001/sub2api/issues)。
 
 
 ## 本仓库的维护方向

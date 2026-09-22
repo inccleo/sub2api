@@ -1097,6 +1097,13 @@ export interface CodexHarvestFlowAccount {
   tickets: CodexHarvestFlowTicket[]
   ready_count: number
   blocked_count: number
+  /** 当前可用性（后端按调度 SQL 口径计算）：available / rate_limited / overload /
+   *  temp_unschedulable / error / disabled / expired。老版本后端不返回该字段。 */
+  availability?: string
+  /** 被时间窗挡住时的预计恢复时间（ISO 字符串）。 */
+  recover_at?: string
+  /** 临时不可调度的原因原文（排查用）。 */
+  temp_unschedulable_reason?: string
 }
 
 export interface CodexHarvestFlowStage {
@@ -1105,6 +1112,7 @@ export interface CodexHarvestFlowStage {
   detail?: string
   at?: string
   node?: string
+  node_name?: string
   model?: string
   http_status?: number
   length?: number
@@ -1122,6 +1130,7 @@ export interface CodexHarvestFlowEvent {
   account_name?: string
   model?: string
   node?: string
+  node_name?: string
   http_status?: number
   length?: number
   blocks?: number
@@ -1147,16 +1156,20 @@ export interface CodexHarvestFlowSnapshot {
     target_length: number
     probe_interval_seconds: number
     cooldown_seconds: number
+    attempt_timeout_seconds?: number
+    refresh_before_seconds?: number
     max_probes_per_round: number
     harvest_proxy?: string
   }
   sidecar: {
+    mode?: 'mihomo' | 'external' | 'unconfigured'
     reachable: boolean
     source?: string
     controller?: string
     group?: string
     type?: string
     now?: string
+    now_name?: string
     all_count?: number
     error?: string
     observed_at?: string
@@ -1187,6 +1200,31 @@ export async function updateCodexSkipHarvest(id: number, skipHarvest: boolean): 
     skip_harvest: skipHarvest
   })
   return data
+}
+
+export interface CodexHarvestConfigPayload {
+  probe_interval_seconds: number
+  max_probes_per_round: number
+  cooldown_seconds: number
+  attempt_timeout_seconds: number
+  refresh_before_seconds: number
+}
+
+export async function updateCodexHarvestConfig(payload: CodexHarvestConfigPayload): Promise<{ message: string }> {
+  // admin 面整体偏慢（实测 3~25s），默认 30s 超时会把已经落库的请求误判为失败，
+  // 这里单独放宽到 60s。
+  const { data } = await apiClient.put<{ message: string }>('/admin/accounts/codex-harvest-flow/config', payload, {
+    timeout: 60000,
+  })
+  return data
+}
+
+export interface ManualHarvestRequestPayload {
+  models: string[]
+  probe_interval_seconds: number
+  rate_limit_cooldown_seconds: number
+  max_attempts: number
+  stop_on_success: boolean
 }
 
 export const accountsAPI = {
@@ -1254,7 +1292,8 @@ export const accountsAPI = {
   setOllamaCloudUsageAutoRefresh,
   refreshOllamaCloudUsage,
   getCodexHarvestFlow,
-  updateCodexSkipHarvest
+  updateCodexSkipHarvest,
+  updateCodexHarvestConfig,
 }
 
 export default accountsAPI

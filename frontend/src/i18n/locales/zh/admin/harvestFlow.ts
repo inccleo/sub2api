@@ -1,5 +1,10 @@
 export default {
   harvestFlow: {
+    externalProxy: '静态/外部代理',
+    externalProxyHint: '节点轮换由代理服务商管理，无需本地 sidecar。',
+    proxyUnconfigured: '尚未配置采票代理',
+    nodePolicy: '节点轮换',
+    nodePolicyHint: '由采票代理配置决定；此处不单独指定切换规则。',
     title: '打票全流程',
     description: '节点轮换 → 打票探测 → 292 形态校验 → 门票入库 → 账号选中',
     autoRefresh: '自动刷新',

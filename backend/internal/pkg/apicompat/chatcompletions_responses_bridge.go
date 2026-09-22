@@ -1419,6 +1419,11 @@ func ChatCompletionsResponseToResponses(resp *ChatCompletionsResponse, model str
 			out.Status = "incomplete"
 			out.IncompleteDetails = &ResponsesIncompleteDetails{Reason: "max_output_tokens"}
 		}
+		if strings.TrimSpace(choice.Message.reasoningText()) != "" && strings.TrimSpace(chatMessageContentText(choice.Message.Content)) == "" && len(choice.Message.ToolCalls) == 0 {
+			out.Status = "failed"
+			out.IncompleteDetails = nil
+			out.Error = chatReasoningOnlyError()
+		}
 	}
 	if len(out.Output) == 0 {
 		out.Output = []ResponsesOutput{emptyResponsesMessageOutput()}
@@ -1451,9 +1456,6 @@ func chatMessageToResponsesOutput(message ChatMessage, customTools, functionTool
 	}
 
 	text := chatMessageContentText(message.Content)
-	if text == "" && strings.TrimSpace(reasoning) != "" && len(message.ToolCalls) == 0 {
-		text = reasoning
-	}
 	if text != "" || len(message.ToolCalls) == 0 {
 		outputs = append(outputs, ResponsesOutput{
 			Type: "message",
@@ -1604,6 +1606,14 @@ func ChatUsageToResponsesUsage(usage *ChatUsage) *ResponsesUsage {
 	}
 	if out.TotalTokens == 0 {
 		out.TotalTokens = out.InputTokens + out.OutputTokens
+	}
+	if details := usage.CompletionTokensDetails; details != nil {
+		out.OutputTokensDetails = &ResponsesOutputTokensDetails{
+			ReasoningTokens:          details.ReasoningTokens,
+			AudioTokens:              details.AudioTokens,
+			AcceptedPredictionTokens: details.AcceptedPredictionTokens,
+			RejectedPredictionTokens: details.RejectedPredictionTokens,
+		}
 	}
 	if usage.PromptTokensDetails != nil && (usage.PromptTokensDetails.CachedTokens > 0 ||
 		usage.PromptTokensDetails.CacheCreationTokens > 0 || usage.PromptTokensDetails.CacheWriteTokens > 0) {
@@ -1869,7 +1879,6 @@ func FinalizeChatCompletionsResponsesStream(state *ChatCompletionsToResponsesStr
 	// Close a reasoning item that never transitioned to content (reasoning-only
 	// or empty completion).
 	events = append(events, closeChatReasoningItem(state)...)
-	events = append(events, synthesizeChatReasoningFallbackMessage(state)...)
 
 	if state.MessageItemID != "" {
 		if state.TextPartOpen {
@@ -1910,9 +1919,16 @@ func FinalizeChatCompletionsResponsesStream(state *ChatCompletionsToResponsesStr
 		status = "incomplete"
 		incompleteDetails = &ResponsesIncompleteDetails{Reason: "max_output_tokens"}
 	}
+	terminalType := "response.completed"
+	var responseError *ResponsesError
+	if strings.TrimSpace(state.Reasoning.String()) != "" && strings.TrimSpace(state.Text.String()) == "" && len(state.ToolCalls) == 0 {
+		status, terminalType = "failed", "response.failed"
+		incompleteDetails = nil
+		responseError = chatReasoningOnlyError()
+	}
 
 	state.CompletedSent = true
-	events = append(events, chatToResponsesEvent(state, "response.completed", &ResponsesStreamEvent{
+	events = append(events, chatToResponsesEvent(state, terminalType, &ResponsesStreamEvent{
 		Response: &ResponsesResponse{
 			ID:                state.ResponseID,
 			Object:            "response",
@@ -1923,6 +1939,7 @@ func FinalizeChatCompletionsResponsesStream(state *ChatCompletionsToResponsesStr
 			Output:            state.chatOutput(),
 			Usage:             state.Usage,
 			IncompleteDetails: incompleteDetails,
+			Error:             responseError,
 		},
 	}))
 	return events
@@ -2004,31 +2021,8 @@ func closeChatReasoningItem(state *ChatCompletionsToResponsesStreamState) []Resp
 	}
 }
 
-func synthesizeChatReasoningFallbackMessage(state *ChatCompletionsToResponsesStreamState) []ResponsesStreamEvent {
-	if state == nil ||
-		state.MessageItemID != "" ||
-		state.Text.Len() > 0 ||
-		state.Reasoning.Len() == 0 ||
-		len(state.ToolCalls) > 0 {
-		return nil
-	}
-
-	text := state.Reasoning.String()
-	if strings.TrimSpace(text) == "" {
-		return nil
-	}
-
-	var events []ResponsesStreamEvent
-	events = append(events, ensureChatToResponsesMessageItem(state)...)
-	events = append(events, ensureChatToResponsesTextPart(state)...)
-	_, _ = state.Text.WriteString(text)
-	events = append(events, chatToResponsesEvent(state, "response.output_text.delta", &ResponsesStreamEvent{
-		OutputIndex:  state.MessageIndex,
-		ContentIndex: 0,
-		Delta:        text,
-		ItemID:       state.MessageItemID,
-	}))
-	return events
+func chatReasoningOnlyError() *ResponsesError {
+	return &ResponsesError{Code: "upstream_reasoning_only", Message: "Upstream returned reasoning without an answer or tool call."}
 }
 
 func ensureChatToResponsesMessageItem(state *ChatCompletionsToResponsesStreamState) []ResponsesStreamEvent {
@@ -2239,7 +2233,7 @@ func (state *ChatCompletionsToResponsesStreamState) chatOutput() []ResponsesOutp
 	if state.Reasoning.Len() > 0 {
 		outputs = append(outputs, ResponsesOutput{
 			Type: "reasoning",
-			ID:   generateItemID(),
+			ID:   state.ReasoningItemID,
 			Summary: []ResponsesSummary{{
 				Type: "summary_text",
 				Text: state.Reasoning.String(),

@@ -6,6 +6,19 @@ vi.mock('@/api/client', () => ({ apiClient: { get, post } }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ locale: { value: 'zh' } }) }))
 const base = { installed: false, supported: true, running: false, busy: false, nodes: 0, subscriptions: 0, phase: 'not_installed', endpoint: 'http://127.0.0.1:3101' }
 describe('Mihomo settings', () => {
+  it('shows subscription names but uses stable IDs for node actions', async () => {
+    const state = { ...base, installed: true, running: true, nodes: 1, node_states: [{ name: 'node-hash', display_name: '日本 东京 01', state: 'enabled' }] }
+    get.mockResolvedValue({ data: state }); post.mockResolvedValue({ data: state })
+    const wrapper = mount(MihomoSettings)
+    try {
+      await flushPromises()
+      expect(wrapper.text()).toContain('日本 东京 01')
+      expect(wrapper.text()).not.toContain('node-hash')
+      await wrapper.findAll('button').find(b => b.text() === '停用')!.trigger('click')
+      await flushPromises()
+      expect(post).toHaveBeenCalledWith('/admin/system/mihomo', expect.objectContaining({ action: 'disable/node-hash' }))
+    } finally { wrapper.unmount() }
+  })
   it('saves a country filter separately and preserves the subscription draft', async () => {
     const state={...base,installed:true,running:true,nodes:1,country_filter:{mode:'off',codes:[],allow_unknown:false},country_codes:['HK','US'],node_states:[{name:'node-one',state:'enabled',country_code:'HK'}]}
     get.mockResolvedValue({data:state});post.mockResolvedValue({data:state})

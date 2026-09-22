@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -60,6 +59,9 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	}
 
 	clientStream := responsesReq.Stream
+	// Codex omits reasoning.summary when configured with summary=none.
+	// Only an explicit summary request enables plaintext summaries.
+	suppressSummary := responsesReq.Reasoning == nil || strings.TrimSpace(responsesReq.Reasoning.Summary) == "" || strings.EqualFold(strings.TrimSpace(responsesReq.Reasoning.Summary), "none")
 	// custom 工具（如 codex 的 exec）降级为 function 工具转发，回程需按名字还原为
 	// custom_tool_call 项，先记下名字集合；tool_search 工具同理，回程还原为
 	// tool_search_call 项；namespace 子工具（如 MCP 工具）摊平转发，回程按映射还原
@@ -134,6 +136,9 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	if err != nil {
 		return nil, err
 	}
+	if _, err := s.admitOpenAITurn(ctx, c, account, upstreamModel); err != nil {
+		return nil, err
+	}
 	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, chatBody, clientStream, apiKey, account.GetOpenAIUserAgent(), "")
 	if err != nil {
 		return nil, err
@@ -156,9 +161,9 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	}
 
 	if clientStream {
-		return s.streamChatCompletionsAsResponses(c, resp, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+		return s.streamChatCompletionsAsResponses(c, resp, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, suppressSummary, startTime)
 	}
-	return s.bufferChatCompletionsAsResponses(c, resp, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime, compact)
+	return s.bufferChatCompletionsAsResponses(c, resp, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, suppressSummary, startTime, compact)
 }
 
 func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
@@ -173,6 +178,7 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 	upstreamModel string,
 	reasoningEffort *string,
 	serviceTier *string,
+	suppressSummary bool,
 	startTime time.Time,
 	compact bool,
 ) (*OpenAIForwardResult, error) {
@@ -182,12 +188,23 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 		return nil, err
 	}
 	responsesResp := apicompat.ChatCompletionsResponseToResponses(ccResp, originalModel, customTools, functionTools, toolSearch, namespaceTools)
+	recordChatReasoningOnlyFailure(c, requestID, upstreamModel, responsesResp)
 	s.cacheReasoningItemsFromOutput(responsesResp.Output)
+	if suppressSummary {
+		responsesResp.Output = withoutReasoningSummaries(responsesResp.Output)
+	}
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
-	if compact {
+	if compact && responsesResp.Status == "failed" {
+		// A failed summary must not become a successful empty compaction item.
+		sse, err := apicompat.ResponsesEventToSSE(apicompat.ResponsesStreamEvent{Type: "response.failed", SequenceNumber: 1, Response: responsesResp})
+		if err != nil {
+			return nil, fmt.Errorf("marshal compact failure: %w", err)
+		}
+		c.Data(http.StatusOK, "text/event-stream", []byte(sse+"data: [DONE]\n\n"))
+	} else if compact {
 		summary := compactSummaryTextFromResponses(responsesResp.Output)
 		logger.L().Info("openai responses chat fallback: deepseek compact synthesizing",
 			zap.Int("upstream_output_items", len(responsesResp.Output)),
@@ -242,6 +259,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	upstreamModel string,
 	reasoningEffort *string,
 	serviceTier *string,
+	suppressSummary bool,
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
@@ -255,6 +273,11 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	clientDisconnected := false
 
 	writeEvents := func(events []apicompat.ResponsesStreamEvent) {
+		// Cache the original completed reasoning items before this write boundary;
+		// clients can return the opaque item ID for DeepSeek tool-history replay.
+		if suppressSummary {
+			events = withoutReasoningSummaryEvents(events)
+		}
 		if clientDisconnected || len(events) == 0 {
 			return
 		}
@@ -320,6 +343,11 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	}
 
 	finalEvents := apicompat.FinalizeChatCompletionsResponsesStream(state)
+	for _, event := range finalEvents {
+		if event.Type == "response.failed" {
+			recordChatReasoningOnlyFailure(c, requestID, upstreamModel, event.Response)
+		}
+	}
 	s.cacheReasoningItemsFromEvents(finalEvents)
 	writeEvents(finalEvents)
 	if !clientDisconnected {
@@ -361,6 +389,16 @@ func chatChunkStartsResponsesOutput(chunk *apicompat.ChatCompletionsChunk) bool 
 		}
 	}
 	return false
+}
+
+func recordChatReasoningOnlyFailure(c *gin.Context, requestID, model string, response *apicompat.ResponsesResponse) {
+	if response == nil || response.Error == nil || response.Error.Code != "upstream_reasoning_only" {
+		return
+	}
+	setOpsUpstreamError(c, http.StatusOK, response.Error.Code, response.Error.Message)
+	logger.L().Warn("openai.responses_reasoning_only",
+		zap.String("request_id", requestID), zap.String("upstream_model", model),
+		zap.String("error_code", response.Error.Code))
 }
 
 // responsesReasoningCacheTTL 是 reasoning 缓存（按 reasoning item id）的过期时间。
@@ -466,7 +504,7 @@ func (s *OpenAIGatewayService) setReasoningContent(itemID, content string) {
 // （This response_format type is unavailable now）。DeepSeek 接受 text 与 json_object，
 // 仅 json_schema 需移除；移除后模型退回纯文本输出，Codex 不依赖结构化输出即可继续。
 func stripDeepSeekUnsupportedChatResponseFormat(account *Account, chatBody []byte) []byte {
-	if !isDeepSeekResponsesUpstream(account) {
+	if !isDeepSeekSemanticsChatUpstream(account, gjson.GetBytes(chatBody, "model").String()) {
 		return chatBody
 	}
 	if strings.TrimSpace(gjson.GetBytes(chatBody, "response_format.type").String()) != "json_schema" {
@@ -479,31 +517,39 @@ func stripDeepSeekUnsupportedChatResponseFormat(account *Account, chatBody []byt
 	return updated
 }
 
-// deepSeekChatReasoningPlaceholderText 是 Chat Completions 侧 thinking-mode
-// 占位明文。必须是单个空格：DeepSeek 拒绝空串，非空即可通过；LiteLLM 同样注入
-// 单个空格。
-const deepSeekChatReasoningPlaceholderText = " "
-
-// targetsDeepSeekAPIHost 报告该账号实际上游是否是 DeepSeek 官方 API。
-// platform=deepseek 直接命中；platform=openai 但 base_url 指向
-// api.deepseek.com 的映射账号同样命中（Codex 把 GPT 模型名映射到 DeepSeek
-// 时的典型接入方式）。
-func targetsDeepSeekAPIHost(account *Account) bool {
+// isDeepSeekSemanticsChatUpstream 报告出站 /chat/completions 请求是否打到
+// 不接受 response_format=json_schema 的 DeepSeek 语义上游。
+//
+// 两条判据任一成立即可：账号本身就是 DeepSeek 上游（platform=deepseek 或
+// base_url 指向 api.deepseek.com），或者出站模型名属于 DeepSeek 模型族
+// （聚合站场景：账号是 platform=openai，但本条请求已映射到 deepseek-*，
+// chatReq.Model 在进入本函数前已经改写为出站模型名）。
+func isDeepSeekSemanticsChatUpstream(account *Account, upstreamModel string) bool {
 	if account == nil {
 		return false
 	}
 	if account.Platform == PlatformDeepseek {
 		return true
 	}
-	u, err := url.Parse(strings.TrimSpace(account.GetOpenAIBaseURL()))
-	if err != nil {
-		return false
+	if isDeepSeekAPIHost(account.GetOpenAIBaseURL()) {
+		return true
 	}
-	ds, err := url.Parse(DefaultDeepseekBaseURL)
-	if err != nil {
-		return false
-	}
-	return strings.EqualFold(u.Hostname(), ds.Hostname())
+	return isDeepSeekModelName(upstreamModel)
+}
+
+// deepSeekChatReasoningPlaceholderText 是 Chat Completions 侧 thinking-mode
+// 占位明文。必须是单个空格：DeepSeek 拒绝空串，非空即可通过；LiteLLM 同样注入
+// 单个空格。
+const deepSeekChatReasoningPlaceholderText = " "
+
+// targetsDeepSeekAPIHost 报告该账号实际上游是否按 DeepSeek 语义工作。
+// 官方 DeepSeek（platform=deepseek 或 base_url 指向 api.deepseek.com）与把
+// deepseek-* 模型挂在聚合站上的账号都算命中——后者实测同样要求 thinking-mode
+// 历史回传 reasoning_content（否则 400）。
+//
+// 该 helper 只拿到账号与 messages、没有请求模型名，因此按账号级映射判定。
+func targetsDeepSeekAPIHost(account *Account) bool {
+	return isDeepSeekSemanticsAccount(account)
 }
 
 // ensureDeepSeekChatReasoningPlaceholders 给缺 reasoning_content 的 assistant

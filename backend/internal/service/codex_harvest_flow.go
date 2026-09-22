@@ -37,6 +37,7 @@ type CodexHarvestFlowEvent struct {
 	AccountName    string    `json:"account_name,omitempty"`
 	Model          string    `json:"model,omitempty"`
 	Node           string    `json:"node,omitempty"`
+	NodeName       string    `json:"node_name,omitempty"`
 	HTTPStatus     int       `json:"http_status,omitempty"`
 	Length         int       `json:"length,omitempty"`
 	Blocks         int       `json:"blocks,omitempty"`
@@ -55,6 +56,7 @@ type CodexHarvestFlowStage struct {
 	Detail         string     `json:"detail,omitempty"`
 	At             *time.Time `json:"at,omitempty"`
 	Node           string     `json:"node,omitempty"`
+	NodeName       string     `json:"node_name,omitempty"`
 	Model          string     `json:"model,omitempty"`
 	HTTPStatus     int        `json:"http_status,omitempty"`
 	Length         int        `json:"length,omitempty"`
@@ -73,6 +75,14 @@ type CodexHarvestFlowAccount struct {
 	Tickets      []OpenAICodexTicketStatus `json:"tickets"`
 	ReadyCount   int                       `json:"ready_count"`
 	BlockedCount int                       `json:"blocked_count"`
+
+	// Availability 当前可用性（口径见 ResolveCodexAccountAvailability，与调度 SQL 一致）。
+	// 取值：available / rate_limited / overload / temp_unschedulable / error / disabled / expired
+	Availability string `json:"availability"`
+	// RecoverAt 被时间窗挡住时预计恢复时间；可用或永久性不可用时为 nil。
+	RecoverAt *time.Time `json:"recover_at,omitempty"`
+	// TempUnschedulableReason 临时不可调度的原因原文（仅排查展示用）。
+	TempUnschedulableReason string `json:"temp_unschedulable_reason,omitempty"`
 }
 
 type CodexHarvestFlowHarvest struct {
@@ -88,15 +98,20 @@ type CodexHarvestFlowHarvest struct {
 	CooldownSec       int      `json:"cooldown_seconds"`
 	MaxProbesPerRound int      `json:"max_probes_per_round"`
 	HarvestProxy      string   `json:"harvest_proxy,omitempty"`
+	// 以下两项此前未回传，导致前端无法回读、只能硬编码默认值（永远显示 25/600）。
+	AttemptTimeoutSec int `json:"attempt_timeout_seconds"`
+	RefreshBeforeSec  int `json:"refresh_before_seconds"`
 }
 
 type CodexHarvestFlowSidecar struct {
+	Mode       string     `json:"mode,omitempty"`
 	Reachable  bool       `json:"reachable"`
 	Source     string     `json:"source,omitempty"`
 	Controller string     `json:"controller,omitempty"`
 	Group      string     `json:"group,omitempty"`
 	Type       string     `json:"type,omitempty"`
 	Now        string     `json:"now,omitempty"`
+	NowName    string     `json:"now_name,omitempty"`
 	AllCount   int        `json:"all_count,omitempty"`
 	Error      string     `json:"error,omitempty"`
 	ObservedAt *time.Time `json:"observed_at,omitempty"`
@@ -325,7 +340,10 @@ func clipFlowText(value string, max int) string {
 	return string(runes[:max])
 }
 
-func watchCodexHarvestExit() func() string {
+func watchCodexHarvestExit(proxyURL string) func() string {
+	if !usesCodexHarvestSidecar(proxyURL) {
+		return func() string { return "" }
+	}
 	done := make(chan struct{})
 	var latest atomic.Value
 	latest.Store("")
@@ -369,6 +387,24 @@ func peekCodexHarvestExit() string {
 	}
 	recordCodexHarvestNode(node, "", 0)
 	return node
+}
+
+func usesCodexHarvestSidecar(proxyURL string) bool {
+	return strings.TrimRight(strings.TrimSpace(proxyURL), "/") == mihomo.Endpoint
+}
+
+// External harvest proxies do not require a local controller. Do not infer
+// their health or attribute their probes to an unrelated Mihomo node.
+func observeCodexHarvestProxy(ctx context.Context, proxyURL string) CodexHarvestFlowSidecar {
+	if strings.TrimSpace(proxyURL) == "" {
+		return CodexHarvestFlowSidecar{Mode: "unconfigured"}
+	}
+	if !usesCodexHarvestSidecar(proxyURL) {
+		return CodexHarvestFlowSidecar{Mode: "external"}
+	}
+	out := observeCodexHarvestSidecar(ctx)
+	out.Mode = "mihomo"
+	return out
 }
 
 func observeCodexHarvestSidecar(ctx context.Context) CodexHarvestFlowSidecar {
@@ -615,6 +651,11 @@ func BuildCodexHarvestFlow(ctx context.Context, cfg *config.Config, settings *Se
 		enabled = settings.GetOpenAICodexTicketEnabled(ctx, enabled)
 		failClosed = settings.GetOpenAICodexTicketFailClosed(ctx)
 		ticketCfg.Models = settings.GetOpenAICodexTicketModels(ctx, ticketCfg.Models)
+		ticketCfg.HarvestProbeIntervalSeconds = settings.GetOpenAICodexTicketProbeIntervalSeconds(ctx, ticketCfg.HarvestProbeIntervalSeconds)
+		ticketCfg.HarvestCooldownSeconds = settings.GetOpenAICodexTicketCooldownSeconds(ctx, ticketCfg.HarvestCooldownSeconds)
+		ticketCfg.MaxProbesPerRound = settings.GetOpenAICodexTicketMaxProbesPerRound(ctx, ticketCfg.MaxProbesPerRound)
+		ticketCfg.HarvestAttemptTimeoutSeconds = settings.GetOpenAICodexTicketAttemptTimeoutSeconds(ctx, ticketCfg.HarvestAttemptTimeoutSeconds)
+		ticketCfg.RefreshBeforeSeconds = settings.GetOpenAICodexTicketRefreshBeforeSeconds(ctx, ticketCfg.RefreshBeforeSeconds)
 		if proxy := settings.GetOpenAICodexTicketHarvestProxyURL(ctx); proxy != "" {
 			harvestProxy = proxy
 		}
@@ -640,8 +681,10 @@ func BuildCodexHarvestFlow(ctx context.Context, cfg *config.Config, settings *Se
 			CooldownSec:       ticketCfg.HarvestCooldownSeconds,
 			MaxProbesPerRound: ticketCfg.MaxProbesPerRound,
 			HarvestProxy:      MaskProxyURL(harvestProxy),
+			AttemptTimeoutSec: ticketCfg.HarvestAttemptTimeoutSeconds,
+			RefreshBeforeSec:  ticketCfg.RefreshBeforeSeconds,
 		},
-		Sidecar: observeCodexHarvestSidecar(ctx),
+		Sidecar: observeCodexHarvestProxy(ctx, harvestProxy),
 		Events:  listCodexHarvestFlowEvents(),
 	}
 	if snapshot.Harvest.HarvestProxy == "" && harvestProxy == mihomo.Endpoint {
@@ -651,6 +694,7 @@ func BuildCodexHarvestFlow(ctx context.Context, cfg *config.Config, settings *Se
 		if !isOpenAICodexTicketAccount(&account) {
 			continue
 		}
+		availability, recoverAt := ResolveCodexAccountAvailability(&account, now)
 		item := CodexHarvestFlowAccount{
 			ID:          account.ID,
 			Name:        account.Name,
@@ -659,6 +703,10 @@ func BuildCodexHarvestFlow(ctx context.Context, cfg *config.Config, settings *Se
 			SkipHarvest: openAICodexSkipHarvest(&account),
 			InScope:     !openAICodexSkipHarvest(&account) && scope.includes(&account),
 			Tickets:     OpenAICodexTicketStatuses(&account, ticketCfg, now),
+
+			Availability:            availability,
+			RecoverAt:               recoverAt,
+			TempUnschedulableReason: account.TempUnschedulableReason,
 		}
 		for _, ticket := range item.Tickets {
 			if ticket.Ready {
@@ -691,6 +739,13 @@ func BuildCodexHarvestFlow(ctx context.Context, cfg *config.Config, settings *Se
 		}
 	}
 	snapshot.Stages = buildCodexHarvestFlowStages(snapshot)
+	snapshot.Sidecar.NowName = mihomo.NodeDisplayName(snapshot.Sidecar.Now)
+	for i := range snapshot.Events {
+		snapshot.Events[i].NodeName = mihomo.NodeDisplayName(snapshot.Events[i].Node)
+	}
+	for i := range snapshot.Stages {
+		snapshot.Stages[i].NodeName = mihomo.NodeDisplayName(snapshot.Stages[i].Node)
+	}
 	snapshot.Events = reverseCodexHarvestFlowEvents(snapshot.Events)
 	return snapshot
 }
@@ -720,6 +775,10 @@ func buildCodexHarvestFlowStages(snapshot CodexHarvestFlowSnapshot) []CodexHarve
 	}
 	node := CodexHarvestFlowStage{ID: "node", Status: "idle", Node: snapshot.Sidecar.Now}
 	switch {
+	case snapshot.Sidecar.Mode == "external":
+		node.Detail = "external_proxy"
+	case snapshot.Sidecar.Mode == "unconfigured":
+		node.Detail = "proxy_unconfigured"
 	case snapshot.Sidecar.Reachable && snapshot.Sidecar.Now != "":
 		node.Status = "ok"
 		node.Detail = snapshot.Sidecar.Now
@@ -738,7 +797,7 @@ func buildCodexHarvestFlowStages(snapshot CodexHarvestFlowSnapshot) []CodexHarve
 	default:
 		node.Detail = "waiting for sidecar"
 	}
-	if event, ok := last["node"]; ok {
+	if event, ok := last["node"]; ok && snapshot.Sidecar.Mode != "external" && snapshot.Sidecar.Mode != "unconfigured" {
 		at := event.At
 		node.At = &at
 		copyFlowMetrics(&node, event)

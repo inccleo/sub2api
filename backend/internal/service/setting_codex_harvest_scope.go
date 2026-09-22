@@ -99,7 +99,8 @@ func (s *SettingService) GetCodexTicketHarvestScope(ctx context.Context) (CodexT
 		return cloneCodexTicketHarvestScope(cached.scope), nil
 	}
 	resultCh := s.openAICodexTicketHarvestScopeSF.DoChan(SettingKeyOpenAICodexTicketHarvestScope, func() (any, error) {
-		if cached, ok := s.openAICodexTicketHarvestScopeCache.Load().(*cachedOpenAICodexTicketHarvestScope); ok && cached != nil && time.Now().UnixNano() < cached.expiresAt {
+		snapshot := s.openAICodexTicketHarvestScopeCache.Load()
+		if cached, ok := snapshot.(*cachedOpenAICodexTicketHarvestScope); ok && cached != nil && time.Now().UnixNano() < cached.expiresAt {
 			return cloneCodexTicketHarvestScope(cached.scope), nil
 		}
 		dbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -110,7 +111,7 @@ func (s *SettingService) GetCodexTicketHarvestScope(ctx context.Context) (CodexT
 			if parseErr != nil {
 				return CodexTicketHarvestScope{}, parseErr
 			}
-			s.openAICodexTicketHarvestScopeCache.Store(&cachedOpenAICodexTicketHarvestScope{
+			s.openAICodexTicketHarvestScopeCache.CompareAndSwap(snapshot, &cachedOpenAICodexTicketHarvestScope{
 				scope:     cloneCodexTicketHarvestScope(scope),
 				expiresAt: time.Now().Add(openAICodexTicketHarvestScopeCacheTTL).UnixNano(),
 			})
@@ -123,7 +124,7 @@ func (s *SettingService) GetCodexTicketHarvestScope(ctx context.Context) (CodexT
 		if parseErr != nil {
 			return CodexTicketHarvestScope{}, parseErr
 		}
-		s.openAICodexTicketHarvestScopeCache.Store(&cachedOpenAICodexTicketHarvestScope{
+		s.openAICodexTicketHarvestScopeCache.CompareAndSwap(snapshot, &cachedOpenAICodexTicketHarvestScope{
 			scope:     cloneCodexTicketHarvestScope(scope),
 			expiresAt: time.Now().Add(openAICodexTicketHarvestScopeCacheTTL).UnixNano(),
 		})

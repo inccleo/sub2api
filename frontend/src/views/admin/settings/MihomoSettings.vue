@@ -23,7 +23,7 @@
         <p class="my-2 text-xs text-gray-500">{{ text('检测仅测试网络连接，不调用模型。失败或停用节点需手动恢复。', 'Tests network connectivity only. Failed or disabled nodes require manual recovery.') }}</p>
         <div class="max-h-64 overflow-auto">
           <div v-for="node in status.node_states" :key="node.name" class="flex items-center gap-2 py-1 text-xs">
-            <code>{{ node.name }}</code><span>{{ node.state }}</span>
+            <span>{{ node.display_name || node.name }}</span><span>{{ node.state }}</span>
             <span :title="node.country_checked_at ? new Date(node.country_checked_at).toLocaleString() : ''">{{ node.country_code || text('地区未知', 'Unknown region') }}</span>
             <button type="button" class="btn btn-secondary btn-sm" :disabled="pending || status.busy" @click="operate('country_probe/' + node.name)">{{ text('检测地区', 'Check region') }}</button>
             <button type="button" class="btn btn-secondary btn-sm" :disabled="pending || status.busy || !status.running" @click="operate('probe/' + node.name)">{{ text('检测', 'Test') }}</button>

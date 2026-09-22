@@ -136,6 +136,8 @@ type SettingService struct {
 	openAICodexTicketFailClosedSF      singleflight.Group
 	openAICodexTicketModelsCache       atomic.Value // *cachedOpenAICodexTicketModels
 	openAICodexTicketModelsSF          singleflight.Group
+	codexHarvestTunablesCache          atomic.Value // *cachedCodexHarvestTunablesRaw
+	codexHarvestTunablesSF             singleflight.Group
 	openAICodexTicketHarvestProxyCache atomic.Value // *cachedOpenAICodexTicketHarvestProxy
 	openAICodexTicketHarvestProxySF    singleflight.Group
 	openAICodexTicketHarvestScopeCache atomic.Value // *cachedOpenAICodexTicketHarvestScope
@@ -163,6 +165,8 @@ type SettingService struct {
 
 	channelMonitorRuntimeListenersMu sync.Mutex
 	channelMonitorRuntimeListeners   []func()
+	codexHarvestWakeOnce             sync.Once
+	codexHarvestWake                 chan struct{}
 }
 
 // DefaultPlatformQuotaSetting 单 platform 三档限额（nil = 沿用上层；0 = 显式禁用；>0 = 上限）

@@ -67,6 +67,7 @@ type NodeStatus struct {
 	CountryError     string     `json:"country_error,omitempty"`
 	CountryBlocked   bool       `json:"country_blocked"`
 	Name             string     `json:"name"`
+	DisplayName      string     `json:"display_name,omitempty"`
 	State            string     `json:"state"`
 }
 
@@ -76,6 +77,7 @@ type saved struct {
 	UseOnce       bool                          `json:"use_once,omitempty"`
 	URLs          []string                      `json:"urls"`
 	Nodes         []map[string]any              `json:"nodes"`
+	NodeNames     map[string]string             `json:"node_names,omitempty"`
 	Secret        string                        `json:"secret"`
 	Disabled      map[string]string             `json:"disabled,omitempty"`
 }
@@ -145,7 +147,7 @@ func (m *Manager) Status() Status {
 			} else if state == "enabled" {
 				s.EligibleNodes++
 			}
-			node := NodeStatus{Name: name, State: state, CountryCode: observation.Code, CountryError: observation.Error, CountryBlocked: blocked}
+			node := NodeStatus{Name: name, DisplayName: m.saved.NodeNames[name], State: state, CountryCode: observation.Code, CountryError: observation.Error, CountryBlocked: blocked}
 			if !observation.CheckedAt.IsZero() {
 				checked := observation.CheckedAt
 				node.CountryCheckedAt = &checked
@@ -291,11 +293,12 @@ func (m *Manager) run(ctx context.Context, action string, next saved) error {
 		if len(next.URLs) == 0 {
 			return errors.New("a subscription is required")
 		}
-		nodes, err := m.fetchNodes(ctx, next.URLs)
+		nodes, names, err := m.fetchNodes(ctx, next.URLs)
 		if err != nil {
 			return err
 		}
 		next.Nodes = nodes
+		next.NodeNames = names
 	}
 	if len(next.Nodes) == 0 {
 		return errors.New("save a valid subscription first")
@@ -487,19 +490,20 @@ func (m *Manager) install(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) fetchNodes(ctx context.Context, urls []string) ([]map[string]any, error) {
+func (m *Manager) fetchNodes(ctx context.Context, urls []string) ([]map[string]any, map[string]string, error) {
 	nodes := []map[string]any{}
+	names := map[string]string{}
 	seen := map[string]bool{}
 	for _, address := range urls {
 		b, err := m.get(ctx, address, 4<<20, "clash.meta")
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		var doc struct {
 			Proxies []map[string]any `yaml:"proxies"`
 		}
 		if yaml.Unmarshal(b, &doc) != nil || len(doc.Proxies) == 0 {
-			return nil, errors.New("subscription must contain Clash/Mihomo YAML proxies")
+			return nil, nil, errors.New("subscription must contain Clash/Mihomo YAML proxies")
 		}
 		for _, node := range doc.Proxies {
 			// Only outbound entries are imported; never accept a provider's listeners,
@@ -508,11 +512,12 @@ func (m *Manager) fetchNodes(ctx context.Context, urls []string) ([]map[string]a
 			if kind == "" || strings.EqualFold(kind, "direct") || strings.EqualFold(kind, "reject") {
 				continue
 			}
+			displayName, _ := node["name"].(string)
 			delete(node, "name")
 			delete(node, "dialer-proxy")
 			encoded, err := json.Marshal(node)
 			if err != nil {
-				return nil, errors.New("invalid proxy entry")
+				return nil, nil, errors.New("invalid proxy entry")
 			}
 			hash := sha256.Sum256(encoded)
 			id := hex.EncodeToString(hash[:])
@@ -520,17 +525,19 @@ func (m *Manager) fetchNodes(ctx context.Context, urls []string) ([]map[string]a
 				continue
 			}
 			seen[id] = true
-			node["name"] = "node-" + id[:16]
+			nodeID := "node-" + id[:16]
+			node["name"] = nodeID
+			names[nodeID] = sanitizeNodeDisplayName(displayName)
 			nodes = append(nodes, node)
 			if len(nodes) > 1000 {
-				return nil, errors.New("at most 1000 nodes")
+				return nil, nil, errors.New("at most 1000 nodes")
 			}
 		}
 	}
 	if len(nodes) == 0 {
-		return nil, errors.New("subscription has no usable nodes")
+		return nil, nil, errors.New("subscription has no usable nodes")
 	}
-	return nodes, nil
+	return nodes, names, nil
 }
 
 func (m *Manager) config(s saved) ([]byte, error) {

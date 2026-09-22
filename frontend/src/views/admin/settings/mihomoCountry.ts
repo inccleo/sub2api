@@ -4,6 +4,7 @@ export interface CountryFilter {
   allow_unknown: boolean
 }
 export interface CountryNode {
+  display_name?: string
   name: string
   state: string
   country_code?: string

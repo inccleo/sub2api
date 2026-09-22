@@ -9,6 +9,24 @@ import (
 
 const defaultBalanceRechargeMultiplier = 1.0
 
+type RechargePackage struct {
+	Amount float64 `json:"amount"`
+	Bonus  float64 `json:"bonus"`
+}
+
+var defaultRechargePackages = []RechargePackage{
+	{Amount: 50, Bonus: 0},
+	{Amount: 100, Bonus: 20},
+	{Amount: 500, Bonus: 150},
+	{Amount: 1000, Bonus: 400},
+}
+
+func DefaultRechargePackages() []RechargePackage {
+	packages := make([]RechargePackage, len(defaultRechargePackages))
+	copy(packages, defaultRechargePackages)
+	return packages
+}
+
 func normalizeBalanceRechargeMultiplier(multiplier float64) float64 {
 	if math.IsNaN(multiplier) || math.IsInf(multiplier, 0) || multiplier <= 0 {
 		return defaultBalanceRechargeMultiplier
@@ -26,7 +44,22 @@ func normalizeSubscriptionUSDToCNYRate(rate float64) float64 {
 }
 
 func calculateCreditedBalance(paymentAmount, multiplier float64) float64 {
+	return calculateCreditedBalanceWithBonus(paymentAmount, 0, multiplier)
+}
+
+func rechargeBonusForAmount(paymentAmount float64) float64 {
+	amount := decimal.NewFromFloat(paymentAmount).Round(2)
+	for _, pkg := range defaultRechargePackages {
+		if amount.Equal(decimal.NewFromFloat(pkg.Amount)) {
+			return pkg.Bonus
+		}
+	}
+	return 0
+}
+
+func calculateCreditedBalanceWithBonus(paymentAmount, bonus, multiplier float64) float64 {
 	return decimal.NewFromFloat(paymentAmount).
+		Add(decimal.NewFromFloat(bonus)).
 		Mul(decimal.NewFromFloat(normalizeBalanceRechargeMultiplier(multiplier))).
 		Round(2).
 		InexactFloat64()

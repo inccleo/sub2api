@@ -23,6 +23,11 @@ export type PaymentType = 'alipay' | 'wxpay' | 'alipay_direct' | 'wxpay_direct' 
 
 export type OrderType = 'balance' | 'subscription'
 
+export interface RechargePackage {
+  amount: number
+  bonus: number
+}
+
 // ==================== Configuration ====================
 
 export interface PaymentConfig {
@@ -66,6 +71,7 @@ export interface CheckoutInfoResponse {
   global_min: number
   global_max: number
   plans: SubscriptionPlan[]
+  recharge_packages?: RechargePackage[]
   balance_disabled: boolean
   balance_recharge_multiplier: number
   /** Subscription CNY conversion rate (1 USD = X CNY); 0 = disabled, plan price is charged as-is */

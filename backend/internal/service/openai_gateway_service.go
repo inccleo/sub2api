@@ -448,6 +448,7 @@ var ErrNoAvailableCompactAccounts = errors.New("no available accounts support /r
 
 // OpenAIGatewayService handles OpenAI API gateway operations
 type OpenAIGatewayService struct {
+	codexHarvestRunMu     sync.RWMutex
 	accountRepo           AccountRepository
 	proxyRepo             ProxyRepository
 	usageLogRepo          UsageLogRepository
@@ -521,13 +522,18 @@ type OpenAIGatewayService struct {
 	openaiCodexTicketCursors       sync.Map // codexHarvestTier -> *atomic.Uint64
 	openaiCodexTicketFlight        singleflight.Group
 	openaiCodexTicketProbeCooldown sync.Map // accountID\x00model -> time.Time
+	openaiCodexTicketChatHold      sync.Map // accountID -> *int64 in-flight bound chats
 	openaiCodexTicketLifecycleMu   sync.Mutex
 	openaiCodexTicketCancel        context.CancelFunc
 	openaiCodexTicketDone          chan struct{}
 	openaiCodexTicketStopped       bool
 
 	requireLatestTurnAdmission bool
+	codexHarvest               *CodexHarvestService
+	codexHarvestRoundActive    atomic.Bool
 }
+
+type OpenAIGatewayOption func(*OpenAIGatewayService)
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService
 func NewOpenAIGatewayService(
@@ -554,6 +560,7 @@ func NewOpenAIGatewayService(
 	balanceNotifyService *BalanceNotifyService,
 	settingService *SettingService,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
+	options ...OpenAIGatewayOption,
 ) *OpenAIGatewayService {
 	// enforceCodexIdentityHeaders 是 HTTP / 透传 / WS / 探针 等出站路径共用的纯函数收口点，
 	// 拿不到配置，故在此发布进程级开关快照。配置取反义，零值即「强制统一出口开启」。
@@ -606,6 +613,9 @@ func NewOpenAIGatewayService(
 	}
 	if openAITokenProvider != nil {
 		openAITokenProvider.SetAccountRuntimeBlocker(svc)
+	}
+	for _, option := range options {
+		option(svc)
 	}
 	svc.logOpenAIWSModeBootstrap()
 	svc.StartOpenAICodexTicketHarvester()

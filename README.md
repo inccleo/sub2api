@@ -25,9 +25,20 @@
 
 欢迎正在部署、使用或维护 Sub2API 的朋友加入 QQ 群「中转技术交流」（群号 **1004036018**），交流部署实践、协议兼容、出口代理和功能改进。也欢迎参与问题复现、测试、文档补充和 Pull Request，一起维护这个独立分支。
 
-<p align="center">
-  <img src="assets/community/qq-relay-tech-group.png" alt="QQ 群：中转技术交流，群号 1004036018" width="420" />
-</p>
+<table>
+<tr>
+<td align="center" width="50%">
+  <img src="assets/community/qq-relay-tech-group.png" alt="QQ 群：中转技术交流，群号 1004036018" width="100%" />
+  <br />
+  加入 QQ 群「中转技术交流」
+</td>
+<td align="center" width="50%">
+  <img src="assets/community/coffee-reward.jpg" alt="赞赏码：如果帮到大家可以打赏咖啡" width="100%" />
+  <br />
+  如果帮到大家可以打赏咖啡！
+</td>
+</tr>
+</table>
 
 二维码长期有效。需要长期留档、报告问题或讨论具体改动时，请使用 [Issues](https://github.com/ranxi2001/sub2api/issues)。
 
@@ -594,6 +605,7 @@ OAuth / Setup Token 图片请求使用 Responses 主控模型调用 `image_gener
 简易模式适合个人开发者或内部团队快速使用，不依赖完整 SaaS 功能。
 
 - 启用方式：设置环境变量 `RUN_MODE=simple`
+- 默认每次启动创建缺失的默认分组；设置 `SIMPLE_MODE_AUTO_CREATE_DEFAULT_GROUPS=false`（或 YAML `simple_mode.auto_create_default_groups: false`）可关闭。关闭不删除已有分组，也不改变运行时自动绑定或管理员并发配置。
 - 功能差异：隐藏 SaaS 相关功能，跳过计费流程
 - 安全注意事项：生产环境需同时设置 `SIMPLE_MODE_CONFIRM=true` 才允许启动
 

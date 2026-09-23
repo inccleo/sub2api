@@ -59,6 +59,14 @@ export default {
     dockerRecreate: 'Recreate the container'
   },
 
+  support: {
+    button: 'Support',
+    title: 'Contact support',
+    description: 'Scan the QR code for recharge, subscription, and account help.',
+    qrAlt: 'Support QR code',
+    scanHint: 'Scan with WeChat or the corresponding app',
+  },
+
   // Recharge / Subscription Page
   purchase: {
     title: 'Recharge / Subscription',

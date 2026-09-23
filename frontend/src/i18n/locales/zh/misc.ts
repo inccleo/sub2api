@@ -58,6 +58,14 @@ export default {
     dockerRecreate: '重新创建容器'
   },
 
+  support: {
+    button: '客服',
+    title: '联系客服',
+    description: '扫码联系客服，获取充值、订阅和账号帮助。',
+    qrAlt: '客服二维码',
+    scanHint: '请使用微信或对应应用扫码',
+  },
+
   // Recharge / Subscription Page
   purchase: {
     title: '充值/订阅',

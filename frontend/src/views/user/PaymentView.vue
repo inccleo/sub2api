@@ -61,6 +61,27 @@
               />
               <p v-if="amountError" class="mt-2 text-xs text-amber-600 dark:text-amber-300">{{ amountError }}</p>
             </div>
+            <div class="overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 p-5 text-white shadow-sm dark:border-slate-700">
+              <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div class="mb-1 flex items-center gap-2">
+                    <span class="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-bold tracking-wide text-orange-300">
+                      {{ t('payment.enterpriseBadge') }}
+                    </span>
+                    <span class="text-sm font-bold">{{ t('payment.enterpriseCooperation') }}</span>
+                  </div>
+                  <p class="text-sm text-slate-300">{{ t('payment.enterpriseDescription') }}</p>
+                  <p v-if="enterpriseContact" class="mt-2 text-sm font-semibold text-white">{{ enterpriseContact }}</p>
+                </div>
+                <button
+                  type="button"
+                  class="shrink-0 rounded-xl bg-white px-5 py-3 text-sm font-bold text-slate-950 transition hover:bg-orange-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
+                  @click="handleEnterpriseContact"
+                >
+                  {{ t('payment.contactEnterprise') }}
+                </button>
+              </div>
+            </div>
             <div v-if="enabledMethods.length >= 1" class="card p-6">
               <PaymentMethodSelector
                 :methods="methodOptions"
@@ -251,6 +272,56 @@
             <div class="min-h-0 space-y-4 overflow-y-auto">
               <SubscriptionPlanCard v-for="plan in renewalPlans" :key="plan.id" :plan="plan" :active-subscriptions="activeSubscriptions" @select="selectPlanFromModal" />
             </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+    <!-- Enterprise cooperation QR dialog -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="showEnterpriseModal"
+          class="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+          @click.self="showEnterpriseModal = false"
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            :aria-label="t('payment.enterpriseCooperation')"
+            class="relative w-full max-w-sm rounded-3xl border border-gray-200 bg-white p-6 text-center shadow-2xl dark:border-dark-700 dark:bg-dark-900"
+          >
+            <button
+              type="button"
+              class="absolute right-4 top-4 rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 dark:hover:bg-dark-700 dark:hover:text-gray-200"
+              :aria-label="t('common.close')"
+              @click="showEnterpriseModal = false"
+            >
+              <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <span class="inline-flex rounded-full bg-orange-50 px-3 py-1 text-xs font-bold text-orange-700 dark:bg-orange-950/50 dark:text-orange-300">
+              {{ t('payment.enterpriseBadge') }}
+            </span>
+            <h3 class="mt-3 text-xl font-bold text-gray-950 dark:text-white">
+              {{ t('payment.enterpriseDialogTitle') }}
+            </h3>
+            <p class="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">
+              {{ t('payment.enterpriseDialogDescription') }}
+            </p>
+            <div class="mx-auto mt-5 w-fit rounded-2xl border border-gray-200 bg-white p-3 shadow-sm">
+              <img
+                :src="checkout.enterprise_qr_code_url"
+                :alt="t('payment.enterpriseQRCodeAlt')"
+                class="h-56 w-56 rounded-xl object-contain"
+              />
+            </div>
+            <p v-if="enterpriseContact" class="mt-4 text-sm font-semibold text-gray-800 dark:text-gray-200">
+              {{ enterpriseContact }}
+            </p>
+            <p class="mt-2 text-xs text-gray-400 dark:text-gray-500">
+              {{ t('payment.enterpriseScanHint') }}
+            </p>
           </div>
         </div>
       </Transition>
@@ -517,7 +588,7 @@ function onPaymentSettled() {
 // All checkout data from single API call
 const checkout = ref<CheckoutInfoResponse>({
   methods: {}, global_min: 0, global_max: 0,
-  plans: [], recharge_packages: [], balance_disabled: false, balance_recharge_multiplier: 1, subscription_usd_to_cny_rate: 0, recharge_fee_rate: 0, help_text: '', help_image_url: '', stripe_publishable_key: '',
+  plans: [], recharge_packages: [], balance_disabled: false, balance_recharge_multiplier: 1, subscription_usd_to_cny_rate: 0, recharge_fee_rate: 0, help_text: '', help_image_url: '', enterprise_qr_code_url: '', stripe_publishable_key: '',
 })
 
 const fallbackRechargePackages: RechargePackage[] = [
@@ -574,6 +645,16 @@ const selectedRechargeBonus = computed(() =>
 const creditedAmount = computed(() =>
   Math.round(((validAmount.value + selectedRechargeBonus.value) * balanceRechargeMultiplier.value) * 100) / 100
 )
+const enterpriseContact = computed(() => appStore.contactInfo || '')
+const showEnterpriseModal = ref(false)
+
+function handleEnterpriseContact() {
+  if (!checkout.value.enterprise_qr_code_url) {
+    appStore.showInfo(t('payment.enterpriseContactHint'))
+    return
+  }
+  showEnterpriseModal.value = true
+}
 
 // Adaptive grid: center single card, 2-col for 2 plans, 3-col for 3+
 const planGridClass = computed(() => {

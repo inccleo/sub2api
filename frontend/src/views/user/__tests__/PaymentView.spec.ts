@@ -129,6 +129,7 @@ function checkoutInfoFixture(overrides: Partial<CheckoutInfoResponse> = {}) {
     recharge_fee_rate: 0,
     help_text: '',
     help_image_url: '',
+    enterprise_qr_code_url: '',
     stripe_publishable_key: '',
   }
 

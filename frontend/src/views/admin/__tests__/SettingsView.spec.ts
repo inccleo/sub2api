@@ -493,6 +493,7 @@ const baseSettingsResponse = {
   payment_product_name_suffix: "",
   payment_help_image_url: "",
   payment_help_text: "",
+  payment_enterprise_qr_code_url: "",
   payment_cancel_rate_limit_enabled: false,
   payment_cancel_rate_limit_max: 10,
   payment_cancel_rate_limit_window: 1,

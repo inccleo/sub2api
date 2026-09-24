@@ -747,7 +747,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
       iconSvg: item.icon_svg,
     }
     if (/^https:\/\/grok\.topopenai\.com(?:[/?#]|$)/i.test(item.url)) {
-      grokMenuItems.push({ ...navItem, badge: 'NEW' })
+      grokMenuItems.push({ ...navItem, badge: t('nav.freeBadge') })
     } else {
       otherCustomMenuItems.push(navItem)
     }

@@ -167,6 +167,7 @@ export default {
     announcements: 'Announcements',
     apiKeys: 'API Keys',
     imageWorkbench: 'Image Chat',
+    freeBadge: 'FREE',
     dailyCheckins: 'Check-ins',
     batchImage: 'Batch Images',
     usage: 'Usage',

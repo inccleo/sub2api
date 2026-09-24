@@ -340,6 +340,10 @@ func recordCodexHarvestTicketStore(account *Account, ticket *openAICodexTicket, 
 		event.ExpectedLength = openAICodexTicketExpectedLength(account)
 		event.ExpectedBlocks = openAICodexTicketExpectedBlocks(account)
 	}
+	if ticket.Length == 780 {
+		event.ExpectedLength = 780
+		event.ExpectedBlocks = 33
+	}
 	recordCodexHarvestFlow(event)
 }
 
@@ -727,9 +731,11 @@ func BuildCodexHarvestFlow(ctx context.Context, cfg *config.Config, settings *Se
 			scope.GroupIDs = []int64{}
 		}
 	}
+	policy := CodexHarvestControls{Transport: "sse", TargetGateway: "unified-95"}
 	var runtime *CodexHarvestRuntime
 	if len(controls) > 0 && controls[0] != nil {
 		v, _, _ := controls[0].Controls(ctx)
+		policy = v
 		applyHarvestSpeed(&ticketCfg, v.Speed)
 		state := controls[0].Runtime()
 		runtime = &state
@@ -793,6 +799,13 @@ func BuildCodexHarvestFlow(ctx context.Context, cfg *config.Config, settings *Se
 		}
 		for i := range item.Tickets {
 			ticket := &item.Tickets[i]
+			if ticket.Length == 780 && (ticket.Transport != policy.Transport || ticket.Gateway != policy.TargetGateway) {
+				ticket.Ready = false
+				ticket.RemainingSeconds = 0
+				ticket.ExpiresAt = nil
+				ticket.StandbyExpiresAt = nil
+				ticket.Blocked = ticketCfg.FailClosed && !item.SkipHarvest
+			}
 			if ticketCfg.FailClosed && !item.SkipHarvest && !item.InScope {
 				ticket.Blocked = true
 			}
@@ -942,13 +955,13 @@ func buildCodexHarvestFlowStages(snapshot CodexHarvestFlowSnapshot) []CodexHarve
 }
 
 func shapeStageFromEvents(last map[string]CodexHarvestFlowEvent, ready int) CodexHarvestFlowStage {
-	shape := CodexHarvestFlowStage{ID: "shape", Status: "idle", Detail: "waiting for 292 check"}
+	shape := CodexHarvestFlowStage{ID: "shape", Status: "idle", Detail: "waiting for ticket validation"}
 	latest := last["probe"]
 	hit := last["probe:probe_hit"]
 	if flowEventEmpty(latest) && flowEventEmpty(hit) {
 		return shape
 	}
-	if latest.HTTPStatus == 200 && latest.Length > 0 && (latest.Kind != "probe_hit" || (latest.ExpectedLength > 0 && latest.Length != latest.ExpectedLength)) {
+	if (latest.HTTPStatus == 200 || latest.HTTPStatus == 101) && latest.Length > 0 && (latest.Kind != "probe_hit" || (latest.ExpectedLength > 0 && latest.Length != latest.ExpectedLength)) {
 		at := latest.At
 		shape.At = &at
 		shape.Model = latest.Model

@@ -1,7 +1,12 @@
 export default {
   harvestFlow: {
+    transportLabel: 'Mint transport',
+    edgeLabel: 'Edge IP (optional)',
+    edgeHint: 'Dial this public IP while keeping chatgpt.com Host, TLS SNI and certificate verification. Leave empty for DNS. Edge IP and Cookie gateway are separate selections.',
+    gatewayLabel: 'Target routing gateway',
+    nativeHint: 'Native server minting through the existing harvest proxy; no cloud function. 780 is a format length, with a maximum ticket age of 240 seconds. Gateway and model declarations do not prove capability. Mint transport must match the upstream request transport; switching discards tickets from the previous transport.',
     title: 'Ticket Harvest Flow',
-    description: 'Node rotate → harvest probe → 292 shape check → ticket store → account select',
+    description: 'Node rotate → harvest probe → 780 shape check → ticket store → account select',
     externalProxy: 'Static / external proxy',
     externalProxyHint: 'Node rotation is managed by the proxy provider; no local sidecar is required.',
     proxyUnconfigured: 'Harvest proxy not configured',
@@ -41,13 +46,13 @@ export default {
     waitingSidecar: 'Waiting for sidecar',
     poolOnline: 'Load-balance · {n} nodes',
     idleProbe: 'Waiting for harvest probe',
-    idleShape: 'Waiting for 292 check',
+    idleShape: 'Waiting for 780 check',
     idleTicket: 'No stored ticket',
     cookies: { none: 'No cookies', active: '{count} cookies · {time} left', expired: '{count} cookies · expired' },
     idleSelect: 'Waiting for assistant request',
     shapeOk: '{length} bytes / {blocks} blocks',
     shapeBad: 'Got {length}/{blocks}, want {expected_length}/{expected_blocks}',
-    shapeNoBody: 'Latest probe had no ticket body; not a 292 shape miss',
+    shapeNoBody: 'Latest probe had no ticket body; not a 780 shape miss',
     filterAll: 'All',
     ticketsReadyCount: '{n} ready',
     ticketsPausedCount: '{n} models paused',
@@ -56,7 +61,7 @@ export default {
     ticketStored: 'Stored',
     schedulable: 'Schedulable',
     unschedulable: 'Not schedulable',
-    noEvents: 'No flow events yet. This page records node rotation, harvest probes, 292 checks, ticket storage, and account selection.',
+    noEvents: 'No flow events yet. This page records node rotation, harvest probes, 780 checks, ticket storage, and account selection.',
     noAccounts: 'No ChatGPT OAuth accounts eligible for harvest',
     events: 'Flow events',
     accounts: 'Ticket accounts',
@@ -68,7 +73,7 @@ export default {
     durationMinutes: '{minutes}m',
     durationSeconds: '{seconds}s',
     lastProbe: 'Last probe {time}',
-    blocked: 'No 292 ticket; this model is paused',
+    blocked: 'No 780 ticket; this model is paused',
     missing: 'No valid ticket',
     standby: 'Standby',
     skipHarvest: 'Skip harvest',
@@ -149,7 +154,7 @@ export default {
     stages: {
       node: 'Node rotate',
       probe: 'Harvest probe',
-      shape: '292 check',
+      shape: '780 check',
       ticket: 'Ticket store',
       select: 'Account select'
     },
@@ -161,7 +166,7 @@ export default {
     },
     kinds: {
       rotate: 'Rotate',
-      probe_hit: '292 hit',
+      probe_hit: '780 hit',
       probe_miss: 'Probe miss',
       accept: 'Ticket stored',
       reject: 'Ticket rejected',
@@ -171,7 +176,7 @@ export default {
       unavailable: 'Select failed'
     },
     reasons: {
-      ticket_unavailable: 'No valid 292 ticket for this model',
+      ticket_unavailable: 'No valid 780 ticket for this model',
       harvest_excluded: 'Out of harvest scope; leftover tickets are not spent',
       unavailable: 'No available account'
     },

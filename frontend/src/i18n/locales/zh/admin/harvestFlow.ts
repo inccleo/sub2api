@@ -1,7 +1,12 @@
 export default {
   harvestFlow: {
+    transportLabel: '采票协议',
+    edgeLabel: '边缘 IP（可选）',
+    edgeHint: '指定公网 IP 直拨，Host、TLS SNI 和证书校验仍使用 chatgpt.com；留空走 DNS。边缘 IP 与 Cookie 目标网关分别校验。',
+    gatewayLabel: '目标路由网关',
+    nativeHint: '服务器原生采票，沿用采票代理，无需云函数。780 是格式长度，票龄最多 240 秒；网关与模型声明不代表能力验证。采票协议须与业务上游协议一致，切换后旧协议票不复用。',
     title: '打票全流程',
-    description: '节点轮换 → 打票探测 → 292 形态校验 → 门票入库 → 账号选中',
+    description: '节点轮换 → 打票探测 → 780 形态校验 → 门票入库 → 账号选中',
     externalProxy: '静态/外部代理',
     externalProxyHint: '节点轮换由代理服务商管理，无需本地 sidecar。',
     proxyUnconfigured: '尚未配置采票代理',
@@ -41,13 +46,13 @@ export default {
     waitingSidecar: '等待 sidecar',
     poolOnline: '负载均衡 · {n} 个节点',
     idleProbe: '等待打票探测',
-    idleShape: '等待 292 校验',
+    idleShape: '等待 780 校验',
     idleTicket: '暂无入库门票',
     cookies: { none: '无 Cookie', active: 'Cookie {count} 个 · 剩余 {time}', expired: 'Cookie {count} 个 · 已过期' },
     idleSelect: '等待助手请求',
     shapeOk: '{length} 字节 / {blocks} 块',
     shapeBad: '实际 {length}/{blocks}，目标 {expected_length}/{expected_blocks}',
-    shapeNoBody: '最近探测没有门票体，不是 292 形态失败',
+    shapeNoBody: '最近探测没有门票体，不是 780 形态失败',
     filterAll: '全部',
     ticketsReadyCount: '{n} 张有效',
     ticketsPausedCount: '{n} 个模型已暂停',
@@ -56,7 +61,7 @@ export default {
     ticketStored: '已入库',
     schedulable: '可调度',
     unschedulable: '不可调度',
-    noEvents: '还没有流程事件。打开本页后会记录节点轮换、打票探测、292 校验、门票入库和账号选中。',
+    noEvents: '还没有流程事件。打开本页后会记录节点轮换、打票探测、780 校验、门票入库和账号选中。',
     noAccounts: '没有可打票的 ChatGPT OAuth 账号',
     events: '流程事件',
     accounts: '门票账号',
@@ -68,7 +73,7 @@ export default {
     durationMinutes: '{minutes} 分钟',
     durationSeconds: '{seconds} 秒',
     lastProbe: '上次探测 {time}',
-    blocked: '未打到 292，该模型已暂停',
+    blocked: '未打到 780，该模型已暂停',
     missing: '暂无有效门票',
     standby: '备用',
     skipHarvest: '不打票',
@@ -149,7 +154,7 @@ export default {
     stages: {
       node: '节点轮换',
       probe: '打票探测',
-      shape: '292 校验',
+      shape: '780 校验',
       ticket: '门票入库',
       select: '账号选中'
     },
@@ -161,7 +166,7 @@ export default {
     },
     kinds: {
       rotate: '切节点',
-      probe_hit: '打中 292',
+      probe_hit: '打中 780',
       probe_miss: '探测未中',
       accept: '门票入库',
       reject: '门票拒绝',
@@ -171,7 +176,7 @@ export default {
       unavailable: '选号失败'
     },
     reasons: {
-      ticket_unavailable: '该模型没有有效 292 门票',
+      ticket_unavailable: '该模型没有有效 780 门票',
       harvest_excluded: '不在采集范围内，遗留门票不参与门控选号',
       unavailable: '没有可用账号'
     },

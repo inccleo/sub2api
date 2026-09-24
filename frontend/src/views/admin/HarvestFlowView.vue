@@ -470,6 +470,7 @@ function ticketStatusLine(account: CodexHarvestFlowAccount, ticket: CodexHarvest
 }
 
 function ticketProbeLine(ticket: CodexHarvestFlowTicket) {
+  if (ticket.ready && ticket.transport) return [ticket.transport.toUpperCase(), ticket.gateway, ticket.edge_ip].filter(Boolean).join(' · ')
   const probe = ticket.probe
   if (!probe?.result && !probe?.checked_at) return '\u00a0'
   if (!ticket.ready && probe?.checked_at) {

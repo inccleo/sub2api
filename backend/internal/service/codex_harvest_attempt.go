@@ -70,6 +70,9 @@ func (s *OpenAIGatewayService) harvestTicketConfig(ctx context.Context) config.O
 	cfg := s.openAICodexTicketConfig()
 	controls, _ := s.harvestControls(ctx)
 	applyHarvestSpeed(&cfg, controls.Speed)
+	if cfg.TargetLength == 780 && cfg.RefreshBeforeSeconds > 60 {
+		cfg.RefreshBeforeSeconds = 60
+	}
 	return cfg
 }
 
@@ -158,7 +161,7 @@ func (s *OpenAIGatewayService) prepareHarvestAttempt(ctx context.Context, accoun
 		learning.degrade(err.Error())
 		return a, true
 	}
-	scope := CodexHarvestNodeScope{PoolID: sidecar.PoolID, AccountID: account.ID, Identity: ticketIdentity(account), Model: model, Blocks: openAICodexTicketExpectedBlocks(account)}
+	scope := CodexHarvestNodeScope{PoolID: sidecar.PoolID, AccountID: account.ID, Identity: ticketIdentity(account), Model: model, Blocks: codexHarvestExpectedBlocks(account, s.openAICodexTicketConfig())}
 	generation, records, err := learning.nodes.Snapshot(query, scope)
 	if err != nil {
 		learning.degrade("node learning storage unavailable; using rotation")

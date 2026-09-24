@@ -120,6 +120,9 @@ type Config struct {
 	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
 	ImageStorage            ImageStorageConfig            `mapstructure:"image_storage"`
 	Plugins                 PluginConfig                  `mapstructure:"plugins"`
+
+	// Enforce only API-key spending windows in simple mode.
+	SimpleModeKeyRateLimitEnabled bool `mapstructure:"simple_mode_key_rate_limit_enabled" yaml:"simple_mode_key_rate_limit_enabled"`
 }
 
 // SimpleModeConfig controls startup behavior in simple mode.
@@ -2034,6 +2037,7 @@ func configureConfigSource(setConfigFile, addConfigPath func(string)) {
 func setDefaults() {
 	viper.SetDefault("run_mode", RunModeStandard)
 	viper.SetDefault("simple_mode.auto_create_default_groups", true)
+	viper.SetDefault("simple_mode_key_rate_limit_enabled", false)
 
 	// Server
 	viper.SetDefault("server.host", "0.0.0.0")
@@ -2429,9 +2433,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_passthrough_allow_timeout_headers", false)
 	viper.SetDefault("gateway.openai_compact_model", "gpt-5.5")
 	viper.SetDefault("gateway.openai_codex_ticket.enabled", false)
-	viper.SetDefault("gateway.openai_codex_ticket.target_length", 292)
-	viper.SetDefault("gateway.openai_codex_ticket.ttl_seconds", 3600)
-	viper.SetDefault("gateway.openai_codex_ticket.refresh_before_seconds", 600)
+	viper.SetDefault("gateway.openai_codex_ticket.target_length", 780)
+	viper.SetDefault("gateway.openai_codex_ticket.ttl_seconds", 240)
+	viper.SetDefault("gateway.openai_codex_ticket.refresh_before_seconds", 60)
 	viper.SetDefault("gateway.openai_codex_ticket.harvest_proxy_url", "")
 	viper.SetDefault("gateway.openai_codex_ticket.harvest_probe_interval_seconds", 180)
 	viper.SetDefault("gateway.openai_codex_ticket.harvest_cooldown_seconds", 180)

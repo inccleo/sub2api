@@ -961,6 +961,9 @@ func TestAPIContracts(t *testing.T) {
 					"openai_codex_client_version":       "",
 					"openai_codex_client_version_synced": "",
 					"openai_codex_version_auto_sync_enabled": true,
+					"claude_code_client_version": "",
+					"claude_code_client_version_synced": "",
+					"claude_code_version_auto_sync_enabled": true,
 					"openai_fast_policy_settings": {
 						"rules": []
 					},
@@ -1015,6 +1018,7 @@ func TestAPIContracts(t *testing.T) {
 					"daily_checkin_enabled": false,
 					"daily_checkin_reward": 0.01,
 					"daily_checkin_weekly_bonus": 0.05,
+					"cyber_session_identity_strict_enabled": false,
 					"affiliate_enabled": false,
 					"wechat_connect_enabled": false,
 					"wechat_connect_app_id": "",
@@ -1290,6 +1294,9 @@ func TestAPIContracts(t *testing.T) {
 					"openai_codex_client_version":       "",
 					"openai_codex_client_version_synced": "",
 					"openai_codex_version_auto_sync_enabled": true,
+					"claude_code_client_version": "",
+					"claude_code_client_version_synced": "",
+					"claude_code_version_auto_sync_enabled": true,
 					"openai_fast_policy_settings": {
 						"rules": []
 					},
@@ -1342,6 +1349,7 @@ func TestAPIContracts(t *testing.T) {
 					"daily_checkin_enabled": false,
 					"daily_checkin_reward": 0.01,
 					"daily_checkin_weekly_bonus": 0.05,
+					"cyber_session_identity_strict_enabled": false,
 					"affiliate_enabled": false,
 					"wechat_connect_enabled": true,
 					"wechat_connect_app_id": "wx-open-config",
@@ -1979,6 +1987,10 @@ func (s *stubAccountRepo) AutoPauseExpiredAccounts(ctx context.Context, now time
 }
 
 func (s *stubAccountRepo) BindGroups(ctx context.Context, accountID int64, groupIDs []int64) error {
+	return errors.New("not implemented")
+}
+
+func (s *stubAccountRepo) SetGroupAllowedModels(ctx context.Context, accountID int64, allowed map[int64][]string) error {
 	return errors.New("not implemented")
 }
 

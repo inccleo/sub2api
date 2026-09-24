@@ -96,7 +96,7 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(ctx context.Context, req Man
 	if timeout < 3*time.Second {
 		timeout = 12 * time.Second
 	}
-	expectedBlocks := openAICodexTicketExpectedBlocks(account)
+	expectedBlocks := codexHarvestExpectedBlocks(account, s.openAICodexTicketConfig())
 	expectedLength := openAICodexTicketTargetLength(account, cfg)
 	tried := map[string]bool{}
 	got := s.manualHarvestLiveModels(account, req.Models)
@@ -384,7 +384,7 @@ func (s *OpenAIGatewayService) acquireManualHarvestNode(ctx context.Context, acc
 				}
 			}
 		}
-		scope := CodexHarvestNodeScope{PoolID: sidecar.PoolID, AccountID: account.ID, Identity: ticketIdentity(account), Model: model, Blocks: openAICodexTicketExpectedBlocks(account)}
+		scope := CodexHarvestNodeScope{PoolID: sidecar.PoolID, AccountID: account.ID, Identity: ticketIdentity(account), Model: model, Blocks: codexHarvestExpectedBlocks(account, s.openAICodexTicketConfig())}
 		var records []CodexHarvestNodeRecord
 		if controls, _ := s.harvestControls(ctx); controls.NodeMemoryEnabled {
 			if _, stored, snapErr := s.codexHarvest.nodes.Snapshot(query, scope); snapErr == nil {
@@ -420,7 +420,7 @@ func (s *OpenAIGatewayService) acquireManualHarvestNode(ctx context.Context, acc
 		return fallback, nil
 	}
 	tried[node.ID] = true
-	scope := CodexHarvestNodeScope{PoolID: sidecar.PoolID, AccountID: account.ID, Identity: ticketIdentity(account), Model: model, Blocks: openAICodexTicketExpectedBlocks(account)}
+	scope := CodexHarvestNodeScope{PoolID: sidecar.PoolID, AccountID: account.ID, Identity: ticketIdentity(account), Model: model, Blocks: codexHarvestExpectedBlocks(account, s.openAICodexTicketConfig())}
 	generation := int64(0)
 	if controls, _ := s.harvestControls(ctx); controls.NodeMemoryEnabled {
 		if gen, _, snapErr := s.codexHarvest.nodes.Snapshot(query, scope); snapErr == nil {

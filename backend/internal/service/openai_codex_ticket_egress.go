@@ -64,6 +64,15 @@ func restoreBoundCodexTicketHarvestIdentity(h http.Header, ticket *openAICodexTi
 	if h == nil || ticket == nil {
 		return
 	}
+	if ticket.Length == 780 {
+		h.Del(responsesLiteHeaderKey)
+		if codexTicketCookiesFresh(ticket, time.Now()) {
+			h.Set("Cookie", strings.Join(ticket.HarvestCookies, "; "))
+		} else {
+			h.Del("Cookie")
+		}
+		return
+	}
 	prevBeta := strings.TrimSpace(h.Get("OpenAI-Beta"))
 	if session := harvestTicketSessionID(ticket); session != "" {
 		h.Set("session_id", session)

@@ -824,7 +824,6 @@ func TestAPIContracts(t *testing.T) {
 						"api_key_acl_trust_forwarded_ip": false,
 					"forwarded_client_ip_headers": [],
 					"contact_info": "support",
-					"support_qr_code_url": "",
 					"doc_url": "https://docs.example.com",
 					"auth_source_default_email_balance": 0,
 					"auth_source_default_email_concurrency": 5,
@@ -961,6 +960,9 @@ func TestAPIContracts(t *testing.T) {
 					"openai_codex_client_version":       "",
 					"openai_codex_client_version_synced": "",
 					"openai_codex_version_auto_sync_enabled": true,
+					"claude_code_client_version": "",
+					"claude_code_client_version_synced": "",
+					"claude_code_version_auto_sync_enabled": true,
 					"openai_fast_policy_settings": {
 						"rules": []
 					},
@@ -1015,6 +1017,7 @@ func TestAPIContracts(t *testing.T) {
 					"daily_checkin_enabled": false,
 					"daily_checkin_reward": 0.01,
 					"daily_checkin_weekly_bonus": 0.05,
+					"cyber_session_identity_strict_enabled": false,
 					"affiliate_enabled": false,
 					"wechat_connect_enabled": false,
 					"wechat_connect_app_id": "",
@@ -1184,7 +1187,6 @@ func TestAPIContracts(t *testing.T) {
 					"api_key_acl_trust_forwarded_ip": false,
 					"forwarded_client_ip_headers": [],
 					"contact_info": "",
-					"support_qr_code_url": "",
 					"doc_url": "",
 					"home_content": "",
 					"hide_ccs_import_button": false,
@@ -1290,6 +1292,9 @@ func TestAPIContracts(t *testing.T) {
 					"openai_codex_client_version":       "",
 					"openai_codex_client_version_synced": "",
 					"openai_codex_version_auto_sync_enabled": true,
+					"claude_code_client_version": "",
+					"claude_code_client_version_synced": "",
+					"claude_code_version_auto_sync_enabled": true,
 					"openai_fast_policy_settings": {
 						"rules": []
 					},
@@ -1342,6 +1347,7 @@ func TestAPIContracts(t *testing.T) {
 					"daily_checkin_enabled": false,
 					"daily_checkin_reward": 0.01,
 					"daily_checkin_weekly_bonus": 0.05,
+					"cyber_session_identity_strict_enabled": false,
 					"affiliate_enabled": false,
 					"wechat_connect_enabled": true,
 					"wechat_connect_app_id": "wx-open-config",
@@ -1979,6 +1985,10 @@ func (s *stubAccountRepo) AutoPauseExpiredAccounts(ctx context.Context, now time
 }
 
 func (s *stubAccountRepo) BindGroups(ctx context.Context, accountID int64, groupIDs []int64) error {
+	return errors.New("not implemented")
+}
+
+func (s *stubAccountRepo) SetGroupAllowedModels(ctx context.Context, accountID int64, allowed map[int64][]string) error {
 	return errors.New("not implemented")
 }
 

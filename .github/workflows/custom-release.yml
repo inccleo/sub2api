@@ -113,7 +113,7 @@ jobs:
             cd release-assets
             sha256sum "$asset" > checksums.txt
           )
-          printf '{\n  "tag": "%s",\n  "version": "%s",\n  "commit": "%s",\n  "upstream": "Wei-Shaw/sub2api"\n}\n' \
+          printf '{\n  "tag": "%s",\n  "version": "%s",\n  "commit": "%s",\n  "upstream": "ranxi2001/sub2api"\n}\n' \
             "$TAG" "$VERSION" "$commit" > release-assets/release-manifest.json
           echo "asset=$asset" >> "$GITHUB_OUTPUT"
 

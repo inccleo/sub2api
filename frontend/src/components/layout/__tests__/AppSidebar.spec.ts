@@ -54,19 +54,19 @@ describe('AppSidebar collapsible groups', () => {
 describe('AppSidebar header styles', () => {
   it('does not clip the version badge dropdown', () => {
     const sidebarHeaderBlockMatch = styleSource.match(/\.sidebar-header\s*\{[\s\S]*?\n {2}\}/)
-    const sidebarBrandBlockMatch = componentSource.match(/\.sidebar-brand\s*\{[\s\S]*?\n\}/)
+    const sidebarExpandedHeaderBlockMatch = componentSource.match(/\.sidebar-header-expanded\s*\{[\s\S]*?\n\}/)
 
     expect(sidebarHeaderBlockMatch).not.toBeNull()
-    expect(sidebarBrandBlockMatch).not.toBeNull()
+    expect(sidebarExpandedHeaderBlockMatch).not.toBeNull()
     expect(sidebarHeaderBlockMatch?.[0]).not.toContain('@apply overflow-hidden;')
-    expect(sidebarBrandBlockMatch?.[0]).not.toContain('overflow: hidden;')
+    expect(sidebarExpandedHeaderBlockMatch?.[0]).not.toContain('overflow: hidden;')
   })
 })
 
 describe('AppSidebar subscription feature flag', () => {
-  it('gates the My Subscriptions entry behind the subscription public-settings flag', () => {
+  it('keeps the subscription flag for admin navigation while hiding the personal entry', () => {
     expect(componentSource).toContain('const flagSubscription = makeSidebarFlag(FeatureFlags.subscription)')
-    expect(componentSource).toMatch(/path: '\/subscriptions'[^\n]*featureFlag: flagSubscription/)
+    expect(componentSource).not.toMatch(/path: '\/subscriptions'/)
   })
 
   it('also hides the admin Subscription Management entry on recharge-only sites', () => {

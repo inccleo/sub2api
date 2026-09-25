@@ -61,7 +61,9 @@ func TestCollectionWithOfficialKernel(t *testing.T) {
 	}
 	m := New(t.TempDir())
 	defer m.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	// The opt-in smoke test downloads a release asset before local probes.
+	m.client.Timeout = 90 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	require.NoError(t, m.run(ctx, "install", saved{}))
 	require.NoError(t, m.run(ctx, "start", saved{UseOnce: true, Nodes: []map[string]any{node("first", first.URL), node("second", second.URL)}}))
@@ -95,4 +97,25 @@ func TestCollectionWithOfficialKernel(t *testing.T) {
 	require.NoError(t, err)
 	defer release()
 	require.Equal(t, n1, fetch(proxy))
+	release()
+	// Exercise the directed adapter against the real selector/listener API,
+	// with local simulated exits in both reusable and use-once modes.
+	for _, useOnce := range []bool{false, true} {
+		require.NoError(t, m.run(ctx, "start", saved{Secret: m.saved.Secret, UseOnce: useOnce, Nodes: []map[string]any{node("first", first.URL), node("second", second.URL)}}))
+		sidecar, err := LoadDirectedSidecar("", Endpoint)
+		require.NoError(t, err)
+		nodes, err := sidecar.Directory(ctx)
+		require.NoError(t, err)
+		for _, selected := range nodes {
+			end, err := sidecar.Acquire(ctx, selected)
+			require.NoError(t, err)
+			require.Equal(t, selected.ID, fetch(sidecar.ProxyURL))
+			require.NoError(t, sidecar.Confirm(ctx, selected))
+			end()
+		}
+		if useOnce {
+			_, err := sidecar.Directory(ctx)
+			require.ErrorContains(t, err, "no eligible")
+		}
+	}
 }

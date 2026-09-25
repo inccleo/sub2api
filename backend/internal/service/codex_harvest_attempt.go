@@ -91,7 +91,7 @@ func (s *OpenAIGatewayService) freshHarvestAccount(ctx context.Context, account 
 			return nil, false
 		}
 	}
-	if !isOpenAICodexTicketAccount(account) || account.IsRateLimited() || openAICodexSkipHarvest(account) || s.codexTicketChatHeld(account.ID) || s.ticketProbeCoolingDown(account.ID, model, time.Now()) {
+	if !isOpenAICodexTicketAccount(account, model) || account.IsRateLimited() || openAICodexSkipHarvest(account) || s.codexTicketChatHeld(account.ID) || s.ticketProbeCoolingDown(account.ID, model, time.Now()) {
 		return nil, false
 	}
 	cfg := s.openAICodexTicketConfig()
@@ -148,6 +148,10 @@ func (s *OpenAIGatewayService) prepareHarvestAttempt(ctx context.Context, accoun
 	learning := s.codexHarvest
 	sidecar, err := mihomo.LoadDirectedSidecar(os.Getenv("DATA_DIR"), proxy)
 	if err != nil {
+		if _, _, managed := mihomo.ManagedController(); managed && strings.TrimRight(proxy, "/") == mihomo.Endpoint {
+			learning.degrade(err.Error())
+			return a, false
+		}
 		if pinned != nil && strings.TrimSpace(pinned.HarvestProxyURL) != "" {
 			a.proxy = pinned.HarvestProxyURL
 		}
@@ -159,7 +163,7 @@ func (s *OpenAIGatewayService) prepareHarvestAttempt(ctx context.Context, accoun
 	nodes, err := sidecar.Directory(query)
 	if err != nil {
 		learning.degrade(err.Error())
-		return a, true
+		return a, false
 	}
 	scope := CodexHarvestNodeScope{PoolID: sidecar.PoolID, AccountID: account.ID, Identity: ticketIdentity(account), Model: model, Blocks: codexHarvestExpectedBlocks(account, s.openAICodexTicketConfig())}
 	generation, records, err := learning.nodes.Snapshot(query, scope)
@@ -187,8 +191,8 @@ func (s *OpenAIGatewayService) prepareHarvestAttempt(ctx context.Context, accoun
 	tried[node.ID] = true
 	release, err := sidecar.Acquire(ctx, node)
 	if err != nil {
-		learning.degrade("directed selection unavailable; using rotation")
-		return a, true
+		learning.degrade("directed selection unavailable")
+		return a, false
 	}
 	learning.setRuntime(func(r *CodexHarvestRuntime) {
 		r.CurrentNode = node.Name

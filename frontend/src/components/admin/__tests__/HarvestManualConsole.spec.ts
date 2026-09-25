@@ -63,6 +63,7 @@ describe('HarvestManualConsole', () => {
     await flushPromises()
     expect(stream).toHaveBeenCalledWith(2, expect.objectContaining({
       node_switch_rule: 'every_request',
+      collect_lanes: 1,
       stop_on_success: true,
       models: ['gpt-6-astra', 'gpt-5.4-sol']
     }), expect.any(Function), expect.any(AbortSignal))

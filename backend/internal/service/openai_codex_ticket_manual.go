@@ -117,7 +117,7 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(ctx context.Context, req Man
 		return nil
 	}
 
-	for attempt := 1; attempt <= req.MaxAttempts; attempt++ {
+	for attempt := 0; attempt < req.MaxAttempts; {
 		if err := ctx.Err(); err != nil {
 			emit(ManualHarvestProgress{Attempt: attempt, MaxAttempts: req.MaxAttempts, TicketsStored: ticketsStored, Done: true, Result: "done", Level: "INFO", Message: "手动打票已停止。"})
 			return err
@@ -150,6 +150,10 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(ctx context.Context, req Man
 			if manualHarvestModelDone(got, model) {
 				continue
 			}
+			if attempt >= req.MaxAttempts {
+				break
+			}
+			attempt++
 			lease, leaseErr := s.acquireManualHarvestNode(ctx, account, model, proxy, keepID, tried, forceSwitch)
 			if leaseErr != nil {
 				consecutiveFails++
@@ -161,13 +165,14 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(ctx context.Context, req Man
 				continue
 			}
 			nodeName := strings.TrimSpace(lease.node.Name)
-			if nodeName == "" {
-				nodeName = mihomo.NodeDisplayName(strings.TrimSpace(peekCodexHarvestExit()))
-			}
 			if forceSwitch && keepID != "" && lease.node.ID != "" && lease.node.ID == keepID && len(tried) > 1 {
 				emit(ManualHarvestProgress{Attempt: attempt, MaxAttempts: req.MaxAttempts, Model: model, Node: nodeName, Result: "node_switch", Level: "WARN", Message: "定向池里暂时没有新的节点，继续使用当前出口。", TicketsStored: ticketsStored})
-			} else if forceSwitch && nodeName != "" {
+			} else if lease.node.ID != "" && lease.node.ID != keepID {
+				recordCodexHarvestNode(nodeName, "Selector", 0)
 				emit(ManualHarvestProgress{Attempt: attempt, MaxAttempts: req.MaxAttempts, Model: model, Node: nodeName, Result: "node_switch", Level: "INFO", Message: "已切换到节点 " + nodeName, TicketsStored: ticketsStored})
+			}
+			if lease.node.ID == "" && forceSwitch {
+				emit(ManualHarvestProgress{Attempt: attempt, MaxAttempts: req.MaxAttempts, Model: model, Result: "node_switch", Level: "WARN", Message: "定向出口不可用，本次使用代理轮询；无法确认具体节点。", TicketsStored: ticketsStored})
 			}
 			keepID = lease.node.ID
 			forceSwitch = req.NodeSwitchRule == ManualHarvestNodeSwitchEveryRequest
@@ -367,6 +372,9 @@ func (s *OpenAIGatewayService) acquireManualHarvestNode(ctx context.Context, acc
 	sidecar, err := mihomo.LoadDirectedSidecar(os.Getenv("DATA_DIR"), proxy)
 	if err != nil {
 		s.codexHarvest.degrade(err.Error())
+		if _, _, managed := mihomo.ManagedController(); managed && strings.TrimRight(proxy, "/") == mihomo.Endpoint {
+			return fallback, err
+		}
 		return fallback, nil
 	}
 	query, cancel := context.WithTimeout(ctx, 8*time.Second)
@@ -374,7 +382,7 @@ func (s *OpenAIGatewayService) acquireManualHarvestNode(ctx context.Context, acc
 	nodes, err := sidecar.Directory(query)
 	if err != nil {
 		s.codexHarvest.degrade(err.Error())
-		return fallback, nil
+		return fallback, err
 	}
 	pick := func(force bool) (mihomo.HarvestNode, bool) {
 		if !force && keepID != "" {
@@ -416,8 +424,8 @@ func (s *OpenAIGatewayService) acquireManualHarvestNode(ctx context.Context, acc
 	}
 	release, err := sidecar.Acquire(ctx, node)
 	if err != nil {
-		s.codexHarvest.degrade("directed selection unavailable; using rotation")
-		return fallback, nil
+		s.codexHarvest.degrade("directed selection unavailable")
+		return fallback, err
 	}
 	tried[node.ID] = true
 	scope := CodexHarvestNodeScope{PoolID: sidecar.PoolID, AccountID: account.ID, Identity: ticketIdentity(account), Model: model, Blocks: codexHarvestExpectedBlocks(account, s.openAICodexTicketConfig())}

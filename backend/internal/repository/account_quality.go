@@ -12,14 +12,14 @@ import (
 )
 
 func (r *scheduledTestPlanRepository) ListQualityPlans(ctx context.Context) ([]*service.ScheduledTestPlan, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT p.id, p.account_id, p.model_id, p.cron_expression, p.enabled, p.max_results, p.auto_recover, p.last_run_at, p.next_run_at, p.created_at, p.updated_at, p.pelican_config, p.running_until
+	rows, err := r.db.QueryContext(ctx, `SELECT p.id, p.account_id, p.model_id, p.cron_expression, p.enabled, p.max_results, p.auto_recover, p.last_run_at, p.next_run_at, p.created_at, p.updated_at, p.pelican_config, p.running_until, a.name
  FROM scheduled_test_plans p JOIN accounts a ON a.id=p.account_id
  WHERE p.pelican_config->'quality' IS NOT NULL AND a.deleted_at IS NULL ORDER BY p.id DESC`)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	return scanPlans(rows)
+	return scanPlans(rows, true)
 }
 func (r *scheduledTestPlanRepository) TriggerQuality(ctx context.Context, id int64) error {
 	result, err := r.db.ExecContext(ctx, `UPDATE scheduled_test_plans SET next_run_at=NOW(), updated_at=NOW()
@@ -153,8 +153,10 @@ func (r *scheduledTestPlanRepository) ApplyQualityOutcome(ctx context.Context, p
 			}
 		}
 	case outcome == "passed" && state.Action != "" && q.AutoRestore:
-		// Any intervening account/membership edit relinquishes automated restoration.
-		if !version.Equal(state.AccountVersion) || !jsonEqual(groups, state.Remaining) || status != "active" {
+		// Restore only the mutation owned by this quality rule. Other account or
+		// membership edits must not turn an enabled auto-restore rule into a
+		// manual cleanup task. A non-active account is not safe to reactivate.
+		if status != "active" {
 			return "restore_conflict", nil
 		}
 		switch state.Action {
@@ -227,15 +229,6 @@ func qualityGroups(ctx context.Context, tx *sql.Tx, accountID int64) ([]byte, er
 	var raw []byte
 	err := tx.QueryRowContext(ctx, `SELECT COALESCE(jsonb_agg(to_jsonb(g) ORDER BY g.group_id),'[]'::jsonb) FROM account_groups g WHERE account_id=$1`, accountID).Scan(&raw)
 	return raw, err
-}
-func jsonEqual(a, b []byte) bool {
-	var x, y any
-	if json.Unmarshal(a, &x) != nil || json.Unmarshal(b, &y) != nil {
-		return false
-	}
-	left, _ := json.Marshal(x)
-	right, _ := json.Marshal(y)
-	return string(left) == string(right)
 }
 
 // Global operation history is cursor-paginated independently of account/rule selection.

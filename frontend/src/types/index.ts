@@ -278,6 +278,8 @@ export interface PublicSettings {
   /** When true, user monitor hides the user ranking tab and /users payload. */
   channel_monitor_hide_user_ranking?: boolean
   available_channels_enabled: boolean
+  /** Opt-in user gallery of scheduled Pelican HTML results (sidebar「鹈鹕测智」). */
+  pelican_showcase_enabled?: boolean
   /** When false, the whole user-facing subscription surface is hidden. Default true. */
   subscription_enabled: boolean
   /** Mirrors payment config BALANCE_PAYMENT_DISABLED; true = balance top-up closed (subscription-only site). */
@@ -2496,6 +2498,7 @@ export interface PelicanTestConfig {
 }
 
 export interface ScheduledTestPlan {
+  account_name?: string
   pelican_config?: PelicanTestConfig
   running_until?: string | null
   id: number

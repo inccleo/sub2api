@@ -334,6 +334,10 @@ type SystemSettings struct {
 	// Available Channels feature switch (user-facing aggregate view)
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
 
+	// Pelican showcase (user-facing gallery of scheduled Pelican HTML results)
+	PelicanShowcaseEnabled bool                          `json:"pelican_showcase_enabled"`
+	PelicanShowcase        service.PelicanShowcaseConfig `json:"pelican_showcase_config"`
+
 	// Subscription feature switch: gates the whole user-facing subscription surface
 	// (sidebar entries, purchase-page subscription tab, header badge, /subscriptions route).
 	SubscriptionEnabled bool `json:"subscription_enabled"`
@@ -365,7 +369,12 @@ type SystemSettings struct {
 	AccountSchedulingThresholds map[string]int `json:"account_scheduling_thresholds,omitempty"`
 
 	// 允许终端用户在用量页查看自己的失败请求
-	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
+	AllowUserViewErrorRequests  bool   `json:"allow_user_view_error_requests"`
+	RequestCaptureEnabled       bool   `json:"request_capture_enabled"`
+	RequestCaptureQuotaMiB      int64  `json:"request_capture_quota_mib"`
+	RequestCaptureRetentionDays int    `json:"request_capture_retention_days"`
+	ExcelBPSImageRelayEnabled   bool   `json:"excel_bps_image_relay_enabled"`
+	ExcelBPSImageBaseURL        string `json:"excel_bps_image_base_url"`
 }
 
 type DefaultSubscriptionSetting struct {
@@ -448,6 +457,7 @@ type PublicSettings struct {
 	ChannelMonitorHideUserRanking        bool   `json:"channel_monitor_hide_user_ranking"`
 
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
+	PelicanShowcaseEnabled   bool `json:"pelican_showcase_enabled"`
 
 	SubscriptionEnabled bool `json:"subscription_enabled"`
 

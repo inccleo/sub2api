@@ -165,6 +165,7 @@ func normalizeCodexHarvestControls(v *CodexHarvestControls) {
 	if v == nil {
 		return
 	}
+	v.TargetGateway = normalizeCodex780Gateway(v.TargetGateway)
 	if v.Transport == "" {
 		v.Transport = "sse"
 	}
@@ -213,8 +214,8 @@ func ValidateCodexHarvestControls(v CodexHarvestControls) error {
 	if v.Transport != "sse" && v.Transport != "websocket" {
 		return errors.New("transport must be sse or websocket")
 	}
-	if !regexp.MustCompile(`^unified-[0-9]{1,5}$`).MatchString(v.TargetGateway) {
-		return errors.New("target_gateway must be unified-N")
+	if v.TargetGateway != "any" && !regexp.MustCompile(`^unified-[0-9]{1,5}$`).MatchString(v.TargetGateway) {
+		return errors.New("target_gateway must be any, unified-N or chat.gateway.unified-N.api.openai.com")
 	}
 	if v.Version != 1 {
 		return errors.New("unsupported harvest settings version")

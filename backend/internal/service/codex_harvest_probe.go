@@ -78,6 +78,11 @@ func bindCodexHarvestEgress(ticket *openAICodexTicket, attempt codexHarvestAttem
 		return
 	}
 	ticket.HarvestProxyURL = strings.TrimSpace(attempt.proxy)
+	if attempt.node.Provider == "managed" {
+		// Lane listeners are temporary leases; a stored ticket must reacquire
+		// its node through the manager before reusing the exit.
+		ticket.HarvestProxyURL = mihomo.Endpoint
+	}
 	ticket.HarvestNodeID = strings.TrimSpace(attempt.node.ID)
 	ticket.HarvestNodeName = strings.TrimSpace(attempt.node.Name)
 	ticket.HarvestNodeProvider = strings.TrimSpace(attempt.node.Provider)
@@ -177,6 +182,7 @@ func (s *OpenAIGatewayService) requestCodexHarvestProbe(ctx context.Context, acc
 
 func classifyCodexHarvestProbe(ctx context.Context, account *Account, cfg config.OpenAICodexTicketConfig, result codexHarvestProbeResult) (openAICodexTicketShape, string) {
 	shape, err := parseOpenAICodexTicketShape(result.State)
+	var mintErr *codexMintError
 	switch {
 	case ctx.Err() != nil:
 		return shape, "cancelled"
@@ -190,6 +196,8 @@ func classifyCodexHarvestProbe(ctx context.Context, account *Account, cfg config
 		return shape, "network_error"
 	case result.Status != http.StatusOK && (result.Transport != "websocket" || result.Status != http.StatusSwitchingProtocols):
 		return shape, "upstream_error"
+	case errors.As(result.Err, &mintErr):
+		return shape, mintErr.kind
 	case result.Err != nil:
 		return shape, "response_incomplete_or_error"
 	}

@@ -4,6 +4,8 @@ export default {
     edgeLabel: '边缘 IP（可选）',
     edgeHint: '指定公网 IP 直拨，Host、TLS SNI 和证书校验仍使用 chatgpt.com；留空走 DNS。边缘 IP 与 Cookie 目标网关分别校验。',
     gatewayLabel: '目标路由网关',
+    gatewayHint: '填 any 接受任意有效网关，或指定 unified-123 / 完整 host。记录本次实际网关；历史糖果通过不代表当前账号或当前请求必然通过。',
+    shapeValidationIncomplete: '票体 {length}/{blocks} 长度与块数符合目标，但完整验收未通过；原因见打票探测',
     nativeHint: '服务器原生采票，沿用采票代理，无需云函数。780 是格式长度，票龄最多 240 秒；网关与模型声明不代表能力验证。采票协议须与业务上游协议一致，切换后旧协议票不复用。',
     title: '打票全流程',
     description: '节点轮换 → 打票探测 → 780 形态校验 → 门票入库 → 账号选中',
@@ -105,7 +107,7 @@ export default {
     console: {
       collectLanes: '并行通道数',
       parallelStart: '并行获取凭证',
-      parallelHint: '需要托管 Mihomo；独立出口探测，共享最大尝试次数，成功入库后停止。',
+      parallelHint: '通道数仅用于“并行获取凭证”。需要托管 Mihomo；独立出口共享尝试预算，每个模型成功入库后停止。串行打票使用上面的换节点规则。',
       title: '单号定向打票',
       description: '手动对指定账号打票。换节点走定向出口和节点记忆，不走业务轮询。',
       account: '目标账号',
@@ -130,7 +132,7 @@ export default {
         never: '固定当前出口'
       },
       stopOnSuccess: '出票即停（入库合格票后结束）',
-      start: '开始打票',
+      start: '串行打票（1 路）',
       stop: '停止打票',
       clear: '清空日志',
       status: '状态',
@@ -212,6 +214,8 @@ export default {
       reasons: {
         explore: '轮转探索', recent_success: '近期合格票成功记录优先',
         switch_after_invalid_state: '上一节点票形未通过',
+        switch_after_invalid_route: '上一节点路由 Cookie 验收失败',
+        switch_after_model_mismatch: '上一节点模型声明不匹配',
         switch_after_network_error: '上一节点网络失败',
         switch_after_upstream_error: '上一节点上游响应失败',
         switch_after_response_incomplete_or_error: '上一节点响应不完整'
@@ -234,6 +238,8 @@ export default {
       cancelled: '已取消',
       not_sent: '请求未发送',
       invalid_state: '形态不合格',
+      invalid_route: '路由 Cookie 验收失败',
+      model_mismatch: '上游模型声明不匹配',
       token_error: '令牌失败',
       response_incomplete_or_error: '上游未完成'
     }

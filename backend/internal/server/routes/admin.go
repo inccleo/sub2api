@@ -78,6 +78,19 @@ func RegisterAdminRoutes(
 
 		// 系统设置
 		registerSettingsRoutes(admin, h)
+		if h.Admin.RequestCapture != nil {
+			captures := admin.Group("/request-captures")
+			captures.Use(h.Admin.RequestCapture.Gate)
+			captures.GET("", h.Admin.RequestCapture.List)
+			captures.POST("", h.Admin.RequestCapture.Create)
+			captures.POST("/:task/stop", h.Admin.RequestCapture.Stop)
+			captures.DELETE("/:task", h.Admin.RequestCapture.Delete)
+			captures.GET("/:task/requests", h.Admin.RequestCapture.Records)
+			captures.GET("/:task/requests/:record", h.Admin.RequestCapture.Detail)
+			captures.GET("/:task/requests/:record/content/:part", h.Admin.RequestCapture.Content)
+			captures.GET("/:task/export", h.Admin.RequestCapture.Export)
+			captures.GET("/:task/requests/:record/export", h.Admin.RequestCapture.Export)
+		}
 
 		// 数据管理
 		registerDataManagementRoutes(admin, h, stepUpAuth)
@@ -114,6 +127,9 @@ func RegisterAdminRoutes(
 
 		// 定时测试计划
 		registerScheduledTestRoutes(admin, h)
+
+		// 鹈鹕测智用户展示
+		registerPelicanShowcaseRoutes(admin, h)
 
 		// 渠道管理
 		registerChannelRoutes(admin, h)
@@ -748,6 +764,15 @@ func registerUserAttributeRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 }
 
 func registerScheduledTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	admin.GET("/account-ops/config", h.Admin.AccountOps.GetConfig)
+	admin.PUT("/account-ops/config", h.Admin.AccountOps.SaveConfig)
+	admin.GET("/account-ops/alerts", h.Admin.AccountOps.List)
+	// 智能运维 → 凭证守护：账号令牌巡检 / 自动重登 / 错误态自愈
+	admin.GET("/account-ops/token-guard/status", h.Admin.AccountTokenGuard.Status)
+	admin.PUT("/account-ops/token-guard/config", h.Admin.AccountTokenGuard.SaveConfig)
+	admin.POST("/account-ops/token-guard/run", h.Admin.AccountTokenGuard.Run)
+	admin.GET("/account-ops/token-guard/events", h.Admin.AccountTokenGuard.Events)
+	admin.POST("/account-ops/token-guard/accounts/:id/relogin", h.Admin.AccountTokenGuard.Relogin)
 	admin.GET("/account-quality-results", h.Admin.ScheduledTest.ListQualityHistory)
 	admin.GET("/account-quality-plans", h.Admin.ScheduledTest.ListQualityPlans)
 	admin.POST("/account-quality-plans/:id/run", h.Admin.ScheduledTest.TriggerQuality)
@@ -762,6 +787,11 @@ func registerScheduledTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	}
 	// Nested under accounts
 	admin.GET("/accounts/:id/scheduled-test-plans", h.Admin.ScheduledTest.ListByAccount)
+}
+
+// Admins browse the gallery through the user page; this only takes a snapshot down.
+func registerPelicanShowcaseRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	admin.DELETE("/pelican-showcase/items/:id", h.PelicanShowcase.DeleteItem)
 }
 
 func registerErrorPassthroughRoutes(admin *gin.RouterGroup, h *handler.Handlers) {

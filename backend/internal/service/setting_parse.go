@@ -205,6 +205,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		// Available channels feature (default disabled; opt-in)
 		SettingKeyAvailableChannelsEnabled: "false",
 
+		// Pelican showcase (default disabled; opt-in). A missing config means the defaults.
+		SettingKeyPelicanShowcaseEnabled: "false",
+
 		// Subscription feature (default enabled; opt-out)
 		SettingKeySubscriptionEnabled: "true",
 
@@ -274,6 +277,8 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyOpenAIAdvancedSchedulerWeightSessionSticky:         "",
 
 		SettingKeyAllowUserViewErrorRequests: "false",
+		SettingKeyExcelBPSImageRelayEnabled:  "false",
+		SettingKeyExcelBPSImageBaseURL:       "",
 	}
 
 	return s.settingRepo.SetMultiple(ctx, defaults)
@@ -842,6 +847,14 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	// Available channels feature (default: disabled; strict true)
 	result.AvailableChannelsEnabled = settings[SettingKeyAvailableChannelsEnabled] == "true"
 
+	// Pelican showcase (default: disabled; strict true). A corrupt config is shown as the
+	// defaults so the admin page still loads; the runtime reader fails closed on it.
+	result.PelicanShowcaseEnabled = settings[SettingKeyPelicanShowcaseEnabled] == "true"
+	result.PelicanShowcase = DefaultPelicanShowcaseConfig()
+	if showcase, err := parsePelicanShowcaseConfig(settings[SettingKeyPelicanShowcaseConfig]); err == nil {
+		result.PelicanShowcase = showcase
+	}
+
 	// Subscription feature (default: enabled; only an explicit false disables)
 	result.SubscriptionEnabled = !isFalseSettingValue(settings[SettingKeySubscriptionEnabled])
 
@@ -1038,6 +1051,17 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	}
 
 	result.AllowUserViewErrorRequests = settings[SettingKeyAllowUserViewErrorRequests] == "true" // default false
+	result.RequestCaptureEnabled = settings[SettingKeyRequestCaptureEnabled] == "true"
+	result.RequestCaptureQuotaMiB, _ = strconv.ParseInt(settings[SettingKeyRequestCaptureQuotaMiB], 10, 64)
+	if result.RequestCaptureQuotaMiB <= 0 {
+		result.RequestCaptureQuotaMiB = 1024
+	}
+	result.RequestCaptureRetentionDays, _ = strconv.Atoi(settings[SettingKeyRequestCaptureRetentionDays])
+	if result.RequestCaptureRetentionDays < 1 || result.RequestCaptureRetentionDays > 30 {
+		result.RequestCaptureRetentionDays = 7
+	}
+	result.ExcelBPSImageRelayEnabled = settings[SettingKeyExcelBPSImageRelayEnabled] == "true"
+	result.ExcelBPSImageBaseURL = settings[SettingKeyExcelBPSImageBaseURL]
 
 	// Publish Grok default model_mapping options for accounts with empty mapping.
 	xai.SetRuntimeModelMappingOptions(xai.ModelMappingOptions{

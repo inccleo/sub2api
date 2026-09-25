@@ -112,9 +112,10 @@ func (s *OpenAIGatewayService) runParallelHarvest(ctx context.Context, req Manua
 				continue
 			}
 			r := out.result
-			message, level, detail := describeCodexHarvestOutcome(r.Kind, "", r.Status, len(r.State), r.Shape.Blocks, openAICodexTicketTargetLength(account, cfg), codexHarvestExpectedBlocks(account, cfg), model, mihomo.NodeDisplayName(out.node))
+			raw := safeCodexHarvestError(r.Err)
+			message, level, detail := describeCodexHarvestOutcome(r.Kind, raw, r.Status, len(r.State), r.Shape.Blocks, openAICodexTicketTargetLength(account, cfg), codexHarvestExpectedBlocks(account, cfg), model, mihomo.NodeDisplayName(out.node))
 			event := ManualHarvestProgress{Attempt: out.attempt, MaxAttempts: req.MaxAttempts, Model: model, Node: mihomo.NodeDisplayName(out.node), HTTPStatus: r.Status, Length: len(r.State), Blocks: r.Shape.Blocks, Result: r.Kind, Level: level, Message: message, Detail: detail, TicketsStored: stored}
-			recordCodexHarvestProbe(account, model, r.Kind, out.node, "", r.Status, len(r.State), r.Shape.Blocks, openAICodexTicketTargetLength(account, cfg), codexHarvestExpectedBlocks(account, cfg))
+			recordCodexHarvestProbe(account, model, r.Kind, mihomo.NodeDisplayName(out.node), raw, r.Status, len(r.State), r.Shape.Blocks, openAICodexTicketTargetLength(account, cfg), codexHarvestExpectedBlocks(account, cfg))
 			if r.Kind == "success" {
 				fresh, e := s.accountRepo.GetByID(ctx, account.ID)
 				if e != nil || fresh == nil || ticketIdentity(fresh) != ticketIdentity(account) {

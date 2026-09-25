@@ -105,6 +105,7 @@ func TestCodex780EdgeCONNECTDestination(t *testing.T) {
 	defer client.CloseIdleConnections()
 	_, err = client.Do(pinned)
 	require.Error(t, err)
+	require.EqualError(t, mintTransportError(err), "mint transport: proxy_connect_http_502")
 	require.Equal(t, "CONNECT 104.18.32.7:443", <-target)
 	require.Equal(t, "chatgpt.com", pinned.Host)
 	transport, ok := client.Transport.(*http.Transport)

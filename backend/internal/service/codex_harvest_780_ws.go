@@ -38,7 +38,7 @@ func requestCodex780WS(req *http.Request, proxy, edge string, payload []byte, se
 		if resp != nil && resp.Body != nil {
 			_ = resp.Body.Close()
 		}
-		out.Err = errors.New("mint websocket handshake failed")
+		out.Err = mintTransportError(err)
 		return
 	}
 	defer func() { _ = conn.CloseNow() }()
@@ -59,6 +59,7 @@ func requestCodex780WS(req *http.Request, proxy, edge string, payload []byte, se
 		out.Err = err
 		return
 	}
+	out.Gateway = codex780CookieGateway(out.Cookies)
 	var body map[string]any
 	if json.Unmarshal(payload, &body) != nil {
 		out.Err = errors.New("mint payload invalid")
@@ -67,15 +68,19 @@ func requestCodex780WS(req *http.Request, proxy, edge string, payload []byte, se
 	delete(body, "stream")
 	body["type"] = "response.create"
 	raw, _ := json.Marshal(body)
-	if conn.Write(req.Context(), coderws.MessageText, raw) != nil {
-		out.Err = errors.New("mint websocket write failed")
+	if err := conn.Write(req.Context(), coderws.MessageText, raw); err != nil {
+		out.Err = mintTransportError(err)
 		return
 	}
 	created := false
 	for total := 0; total < 64*1024; {
 		kind, message, err := conn.Read(req.Context())
 		total += len(message)
-		if err != nil || kind != coderws.MessageText || total > 64*1024 {
+		if err != nil {
+			out.Err = mintTransportError(err)
+			return
+		}
+		if kind != coderws.MessageText || total > 64*1024 {
 			out.Err = errors.New("mint websocket response incomplete")
 			return
 		}
@@ -98,7 +103,7 @@ func requestCodex780WS(req *http.Request, proxy, edge string, payload []byte, se
 			}
 		case "response.created":
 			if strings.TrimSpace(event.Response.ID) == "" || event.Response.Model != model {
-				out.Err = errors.New("mint model declaration mismatch")
+				out.Err = &codexMintError{kind: "model_mismatch", detail: "mint model declaration mismatch"}
 				return
 			}
 			created = true

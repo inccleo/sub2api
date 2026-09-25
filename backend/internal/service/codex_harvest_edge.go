@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/netip"
@@ -39,6 +40,12 @@ func codexMintHTTPClient(req *http.Request, proxy, edge string) (*http.Client, *
 			return nil, nil, errors.New("invalid mint proxy")
 		}
 		transport.Proxy = http.ProxyURL(parsed)
+		transport.OnProxyConnectResponse = func(_ context.Context, _ *url.URL, _ *http.Request, resp *http.Response) error {
+			if resp.StatusCode != http.StatusOK {
+				return &codexMintError{kind: "network_error", detail: fmt.Sprintf("mint transport: proxy_connect_http_%d", resp.StatusCode)}
+			}
+			return nil
+		}
 	}
 	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	return client, clone, nil

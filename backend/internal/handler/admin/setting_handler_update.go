@@ -358,6 +358,10 @@ type UpdateSettingsRequest struct {
 	// Available Channels feature switch (user-facing)
 	AvailableChannelsEnabled *bool `json:"available_channels_enabled"`
 
+	// Pelican showcase switch + gallery limits (user-facing)
+	PelicanShowcaseEnabled *bool                          `json:"pelican_showcase_enabled"`
+	PelicanShowcase        *service.PelicanShowcaseConfig `json:"pelican_showcase_config"`
+
 	// Subscription feature switch (user-facing subscription surface; see SettingKeySubscriptionEnabled)
 	SubscriptionEnabled *bool `json:"subscription_enabled"`
 
@@ -398,7 +402,12 @@ type UpdateSettingsRequest struct {
 	AuthSourceGooglePlatformQuotas   map[string]*service.DefaultPlatformQuotaSetting `json:"auth_source_default_google_platform_quotas"`
 	AuthSourceDingTalkPlatformQuotas map[string]*service.DefaultPlatformQuotaSetting `json:"auth_source_default_dingtalk_platform_quotas"`
 
-	AllowUserViewErrorRequests *bool `json:"allow_user_view_error_requests"`
+	AllowUserViewErrorRequests  *bool   `json:"allow_user_view_error_requests"`
+	RequestCaptureEnabled       *bool   `json:"request_capture_enabled"`
+	RequestCaptureQuotaMiB      *int64  `json:"request_capture_quota_mib"`
+	RequestCaptureRetentionDays *int    `json:"request_capture_retention_days"`
+	ExcelBPSImageRelayEnabled   *bool   `json:"excel_bps_image_relay_enabled"`
+	ExcelBPSImageBaseURL        *string `json:"excel_bps_image_base_url"`
 }
 
 // UpdateSettings 更新系统设置
@@ -511,6 +520,14 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	}
 	if req.OpenAICodexTicketHarvestScope != nil && req.OpenAICodexTicketHarvestScope.Mode == "" {
 		response.BadRequest(c, "harvest scope mode is required")
+		return
+	}
+	if req.RequestCaptureQuotaMiB != nil && (*req.RequestCaptureQuotaMiB < 1 || *req.RequestCaptureQuotaMiB > (1<<63-1)/(1<<20)) {
+		response.BadRequest(c, "Capture quota must be positive MiB within int64 range")
+		return
+	}
+	if req.RequestCaptureRetentionDays != nil && (*req.RequestCaptureRetentionDays < 1 || *req.RequestCaptureRetentionDays > 30) {
+		response.BadRequest(c, "Capture retention must be 1-30 days")
 		return
 	}
 	auditReq := settingsAuditRequest(req)
@@ -1703,6 +1720,36 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		MaxClaudeCodeVersion:                   req.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:            req.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                     req.BackendModeEnabled,
+		RequestCaptureEnabled: func() bool {
+			if req.RequestCaptureEnabled != nil {
+				return *req.RequestCaptureEnabled
+			}
+			return previousSettings.RequestCaptureEnabled
+		}(),
+		RequestCaptureQuotaMiB: func() int64 {
+			if req.RequestCaptureQuotaMiB != nil {
+				return *req.RequestCaptureQuotaMiB
+			}
+			return previousSettings.RequestCaptureQuotaMiB
+		}(),
+		RequestCaptureRetentionDays: func() int {
+			if req.RequestCaptureRetentionDays != nil {
+				return *req.RequestCaptureRetentionDays
+			}
+			return previousSettings.RequestCaptureRetentionDays
+		}(),
+		ExcelBPSImageRelayEnabled: func() bool {
+			if req.ExcelBPSImageRelayEnabled != nil {
+				return *req.ExcelBPSImageRelayEnabled
+			}
+			return previousSettings.ExcelBPSImageRelayEnabled
+		}(),
+		ExcelBPSImageBaseURL: func() string {
+			if req.ExcelBPSImageBaseURL != nil {
+				return *req.ExcelBPSImageBaseURL
+			}
+			return previousSettings.ExcelBPSImageBaseURL
+		}(),
 		AllowUserViewErrorRequests: func() bool {
 			if req.AllowUserViewErrorRequests != nil {
 				return *req.AllowUserViewErrorRequests
@@ -2057,6 +2104,18 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.AvailableChannelsEnabled
 			}
 			return previousSettings.AvailableChannelsEnabled
+		}(),
+		PelicanShowcaseEnabled: func() bool {
+			if req.PelicanShowcaseEnabled != nil {
+				return *req.PelicanShowcaseEnabled
+			}
+			return previousSettings.PelicanShowcaseEnabled
+		}(),
+		PelicanShowcase: func() service.PelicanShowcaseConfig {
+			if req.PelicanShowcase != nil {
+				return *req.PelicanShowcase
+			}
+			return previousSettings.PelicanShowcase
 		}(),
 		SubscriptionEnabled: func() bool {
 			if req.SubscriptionEnabled != nil {
@@ -2530,6 +2589,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		GrokDefaultBaseURLMode:         updatedSettings.GrokDefaultBaseURLMode,
 
 		AvailableChannelsEnabled: updatedSettings.AvailableChannelsEnabled,
+		PelicanShowcaseEnabled:   updatedSettings.PelicanShowcaseEnabled,
+		PelicanShowcase:          updatedSettings.PelicanShowcase,
 		SubscriptionEnabled:      updatedSettings.SubscriptionEnabled,
 
 		ModelPlazaEnabled:       updatedSettings.ModelPlazaEnabled,
@@ -2545,6 +2606,11 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		CyberSessionIdentityStrictEnabled: updatedSettings.CyberSessionIdentityStrictEnabled,
 		AccountSchedulingThresholds:       updatedSettings.AccountSchedulingThresholds,
 		AllowUserViewErrorRequests:        updatedSettings.AllowUserViewErrorRequests,
+		RequestCaptureEnabled:             updatedSettings.RequestCaptureEnabled,
+		RequestCaptureQuotaMiB:            updatedSettings.RequestCaptureQuotaMiB,
+		RequestCaptureRetentionDays:       updatedSettings.RequestCaptureRetentionDays,
+		ExcelBPSImageRelayEnabled:         updatedSettings.ExcelBPSImageRelayEnabled,
+		ExcelBPSImageBaseURL:              updatedSettings.ExcelBPSImageBaseURL,
 	}
 	if fastPolicy, err := h.settingService.GetOpenAIFastPolicySettings(c.Request.Context()); err != nil {
 		slog.Error("openai_fast_policy_settings_get_failed", "error", err)

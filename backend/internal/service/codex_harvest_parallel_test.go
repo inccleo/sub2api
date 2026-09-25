@@ -135,3 +135,33 @@ func TestParallelRequestValidationAndMutualExclusion(t *testing.T) {
 	err = svc.ExecuteManualHarvest(context.Background(), ManualHarvestRequest{CollectLanes: 10}, nil)
 	require.EqualError(t, err, "another harvest is running")
 }
+
+func TestParallelHarvestKeepsSafeRouteDiagnostics(t *testing.T) {
+	resetCodexHarvestFlow()
+	t.Cleanup(resetCodexHarvestFlow)
+	account := ticketTestAccount(41)
+	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, TargetLength: 780}, &codexTicketFuncUpstream{do: func(*http.Request) (*http.Response, error) {
+		resp := codexTicketResponse()
+		resp.Header.Set(openAICodexTurnStateHeader, mint780State(time.Now()))
+		return resp, nil
+	}})
+	svc.accountRepo = &manualHarvestAccountRepo{account: account}
+	var progress []ManualHarvestProgress
+	err := svc.runParallelHarvest(context.Background(), ManualHarvestRequest{CollectLanes: 2, MaxAttempts: 2, Models: []string{"gpt-6-astra"}}, account, func(p ManualHarvestProgress) { progress = append(progress, p) }, &fakeHarvestCollection{})
+	require.NoError(t, err)
+	misses := 0
+	for _, p := range progress {
+		if p.Result == "invalid_route" {
+			misses++
+			require.Equal(t, 780, p.Length)
+			require.Contains(t, p.Detail, "route_pair_missing")
+			require.Zero(t, p.TicketsStored)
+		}
+	}
+	require.Equal(t, 2, misses)
+	for _, event := range listCodexHarvestFlowEvents() {
+		if event.Stage == "probe" {
+			require.Contains(t, event.Detail, "route_pair_missing")
+		}
+	}
+}

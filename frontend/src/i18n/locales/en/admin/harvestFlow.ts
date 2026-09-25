@@ -4,6 +4,8 @@ export default {
     edgeLabel: 'Edge IP (optional)',
     edgeHint: 'Dial this public IP while keeping chatgpt.com Host, TLS SNI and certificate verification. Leave empty for DNS. Edge IP and Cookie gateway are separate selections.',
     gatewayLabel: 'Target routing gateway',
+    gatewayHint: 'Use any for any valid gateway, or specify unified-123 / a full host. Tickets record the actual gateway; past candy checks do not prove the current account or request will pass.',
+    shapeValidationIncomplete: 'Ticket {length}/{blocks} matches the target length and block count, but full validation did not pass; see probe details',
     nativeHint: 'Native server minting through the existing harvest proxy; no cloud function. 780 is a format length, with a maximum ticket age of 240 seconds. Gateway and model declarations do not prove capability. Mint transport must match the upstream request transport; switching discards tickets from the previous transport.',
     title: 'Ticket Harvest Flow',
     description: 'Node rotate → harvest probe → 780 shape check → ticket store → account select',
@@ -105,7 +107,7 @@ export default {
     console: {
       collectLanes: 'Parallel lanes',
       parallelStart: 'Collect in parallel',
-      parallelHint: 'Requires managed Mihomo. Independent exits share the attempt budget and stop after a ticket is saved.',
+      parallelHint: 'Lane count applies only to parallel collection. Requires managed Mihomo; independent exits share the attempt budget and stop after saving a ticket for each model. Serial harvest uses the switch rule above.',
       title: 'Directed single-account harvest',
       description: 'Manually harvest one account. Node switches use the directed exit and node memory, not business rotation.',
       account: 'Account',
@@ -130,7 +132,7 @@ export default {
         never: 'Keep the current exit'
       },
       stopOnSuccess: 'Stop after a stored qualified ticket',
-      start: 'Start harvest',
+      start: 'Serial harvest (1 lane)',
       stop: 'Stop harvest',
       clear: 'Clear logs',
       status: 'Status',
@@ -212,6 +214,8 @@ export default {
       reasons: {
         explore: 'Round-robin exploration', recent_success: 'Recent qualified ticket success',
         switch_after_invalid_state: 'Previous node returned an invalid ticket',
+        switch_after_invalid_route: 'Previous node failed routing Cookie validation',
+        switch_after_model_mismatch: 'Previous node returned a different model declaration',
         switch_after_network_error: 'Previous node had a network failure',
         switch_after_upstream_error: 'Previous node had an upstream failure',
         switch_after_response_incomplete_or_error: 'Previous response was incomplete'
@@ -234,6 +238,8 @@ export default {
       cancelled: 'Cancelled',
       not_sent: 'Request not sent',
       invalid_state: 'Invalid shape',
+      invalid_route: 'Routing Cookie validation failed',
+      model_mismatch: 'Upstream model declaration mismatch',
       token_error: 'Token error',
       response_incomplete_or_error: 'Upstream incomplete'
     }

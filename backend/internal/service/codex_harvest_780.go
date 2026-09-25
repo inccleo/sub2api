@@ -23,9 +23,49 @@ func codexTicketLifetime(length int) time.Duration {
 
 var codex780GatewayRE = regexp.MustCompile(`(?:^|[.])(?:chat\.)?gateway\.(unified-[0-9]{1,5})(?:[.]|$)`)
 
+var codex780TargetRE = regexp.MustCompile(`^(?:chat\.gateway\.)?(unified-[0-9]{1,5})(?:\.api\.openai\.com)?$`)
+
+func normalizeCodex780Gateway(target string) string {
+	target = strings.ToLower(strings.TrimSpace(target))
+	if target == "*" || target == "any" {
+		return "any"
+	}
+	if match := codex780TargetRE.FindStringSubmatch(target); len(match) == 2 {
+		return match[1]
+	}
+	return target
+}
+
+func codex780GatewayAllowed(actual, target string) bool {
+	return actual != "" && (target == "any" || actual == target)
+}
+
+func codex780CookieGateway(cookies []string) string {
+	for _, cookie := range cookies {
+		name, value, _ := strings.Cut(cookie, "=")
+		if name != "__oailb" {
+			continue
+		}
+		parts := strings.Split(value, ".")
+		if len(parts) != 3 {
+			return ""
+		}
+		raw, err := base64.RawURLEncoding.DecodeString(parts[1])
+		if err != nil {
+			return ""
+		}
+		match := codex780GatewayRE.FindSubmatch(raw)
+		if len(match) == 2 {
+			return string(match[1])
+		}
+	}
+	return ""
+}
+
 // Only the two LB cookies are retained. JWT claims are routing hints, not verified identity.
 func codex780Route(cookies []string, target string, now time.Time) ([]string, time.Time, error) {
-	bad := errors.New("invalid route pair")
+	target = normalizeCodex780Gateway(target)
+	bad := mintRouteError("route_cookie_invalid")
 	pair := map[string]string{}
 	for _, cookie := range cookies {
 		name, value, ok := strings.Cut(cookie, "=")
@@ -42,8 +82,17 @@ func codex780Route(cookies []string, target string, now time.Time) ([]string, ti
 		}
 		pair[name] = value
 	}
-	if pair["__cflb"] == "" || pair["__oailb"] == "" || target == "" {
-		return nil, time.Time{}, errors.New("missing route pair or target")
+	if target == "" {
+		return nil, time.Time{}, mintRouteError("route_target_missing")
+	}
+	if pair["__cflb"] == "" && pair["__oailb"] == "" {
+		return nil, time.Time{}, mintRouteError("route_pair_missing")
+	}
+	if pair["__cflb"] == "" {
+		return nil, time.Time{}, mintRouteError("route_cflb_missing")
+	}
+	if pair["__oailb"] == "" {
+		return nil, time.Time{}, mintRouteError("route_oailb_missing")
 	}
 	parts := strings.Split(pair["__oailb"], ".")
 	if len(parts) != 3 {
@@ -57,17 +106,17 @@ func codex780Route(cookies []string, target string, now time.Time) ([]string, ti
 		Exp int64 `json:"exp"`
 	}
 	if json.Unmarshal(raw, &claims) != nil || claims.Exp <= 0 || claims.Exp >= 4102444800 {
-		return nil, time.Time{}, errors.New("route expiry missing or invalid")
+		return nil, time.Time{}, mintRouteError("route_expiry_invalid")
 	}
 	if claims.Exp <= now.Unix() {
-		return nil, time.Time{}, errors.New("route pair expired")
+		return nil, time.Time{}, mintRouteError("route_pair_expired")
 	}
 	match := codex780GatewayRE.FindSubmatch(raw)
 	if len(match) != 2 {
-		return nil, time.Time{}, errors.New("route gateway unknown")
+		return nil, time.Time{}, mintRouteError("route_gateway_unknown")
 	}
-	if string(match[1]) != target {
-		return nil, time.Time{}, errors.New("route gateway mismatch: " + string(match[1]))
+	if !codex780GatewayAllowed(string(match[1]), target) {
+		return nil, time.Time{}, mintRouteError("route_gateway_mismatch: got=" + string(match[1]) + " want=" + target)
 	}
 	return []string{"__cflb=" + pair["__cflb"], "__oailb=" + pair["__oailb"]}, time.Unix(claims.Exp, 0), nil
 }
@@ -92,11 +141,11 @@ func readCodex780Created(body io.Reader, model string) error {
 			}
 			if json.Unmarshal([]byte(strings.Join(data, "\n")), &event) == nil {
 				if event.Type == "error" || event.Type == "response.failed" {
-					return errors.New("mint error event")
+					return &codexMintError{kind: "response_incomplete_or_error", detail: "mint error event"}
 				}
 				if event.Type == "response.created" {
 					if (eventName != "" && eventName != event.Type) || strings.TrimSpace(event.Response.ID) == "" || event.Response.Model != model {
-						return errors.New("mint model declaration mismatch")
+						return &codexMintError{kind: "model_mismatch", detail: "mint model declaration mismatch"}
 					}
 					return nil
 				}
@@ -114,7 +163,10 @@ func readCodex780Created(body io.Reader, model string) error {
 			eventName = value
 		}
 	}
-	return errors.New("mint created event missing or incomplete")
+	if err := scanner.Err(); err != nil {
+		return mintTransportError(err)
+	}
+	return &codexMintError{kind: "response_incomplete_or_error", detail: "mint created event missing or incomplete"}
 }
 
 func (s *OpenAIGatewayService) requestCodex780Probe(ctx context.Context, account *Account, token, model, proxy string, reserve func() bool, session string) (out codexHarvestProbeResult) {
@@ -183,7 +235,7 @@ func (s *OpenAIGatewayService) requestCodex780Probe(ctx context.Context, account
 		if resp != nil && resp.Body != nil {
 			_ = resp.Body.Close()
 		}
-		out.Err = errors.New("mint transport failed")
+		out.Err = mintTransportError(err)
 		return
 	}
 	if resp == nil {
@@ -217,6 +269,7 @@ func (s *OpenAIGatewayService) requestCodex780Probe(ctx context.Context, account
 		out.Err = err
 		return
 	}
+	out.Gateway = codex780CookieGateway(out.Cookies)
 	out.Err = readCodex780Created(resp.Body, model)
 	return
 }

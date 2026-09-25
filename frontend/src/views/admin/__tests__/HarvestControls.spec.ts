@@ -60,6 +60,15 @@ beforeEach(() => {
 afterEach(() => { wrapper?.unmount(); wrapper = undefined })
 
 describe('Harvest controls draft and request ordering', () => {
+  it.each(['any', 'chat.gateway.unified-123.api.openai.com'])('saves gateway policy %s', async target => {
+    api.save.mockImplementation(async settings => settings)
+    wrapper = mount(HarvestControlsPanel)
+    await flushPromises()
+    await wrapper.get(selector('target-gateway')).setValue(target)
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(api.save).toHaveBeenCalledWith(expect.objectContaining({ target_gateway: target }))
+  })
   it('saves edge IP, gateway and protocol through the existing controls API', async () => {
     api.save.mockImplementation(async settings => settings)
     wrapper = mount(HarvestControlsPanel)

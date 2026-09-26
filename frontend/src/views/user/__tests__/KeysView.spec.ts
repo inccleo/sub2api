@@ -577,9 +577,9 @@ describe('user KeysView column settings', () => {
       await chooseProvider(wrapper, 'openai')
       expect(optionIds(wrapper)).toEqual([2])
       await chooseProvider(wrapper, 'domestic')
-      expect(optionIds(wrapper)).toEqual([3, 4, 5, 6])
+      expect(optionIds(wrapper)).toEqual([3, 4, 5, 6, 11])
       await chooseProvider(wrapper, 'other')
-      expect(optionIds(wrapper)).toEqual([7, 8, 9, 10, 11, 12])
+      expect(optionIds(wrapper)).toEqual([7, 8, 9, 10, 12])
       expect(wrapper.findAllComponents({ name: 'Select' })[0].props('options')).toHaveLength(14)
     })
 

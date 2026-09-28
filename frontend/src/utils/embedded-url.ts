@@ -13,6 +13,12 @@ const EMBEDDED_UI_MODE_VALUE = 'embedded'
 const EMBEDDED_SRC_HOST_QUERY_KEY = 'src_host'
 const EMBEDDED_SRC_QUERY_KEY = 'src_url'
 
+/** ChatGPT custom pages authenticate in their own application. */
+export function isChatGPTMenuItem(item: { label?: string; url?: string }): boolean {
+  return /^chatgpt$/i.test(item.label?.trim() ?? '') ||
+    /^https:\/\/chatgpt\.topopenai\.com(?:[/?#]|$)/i.test(item.url ?? '')
+}
+
 export function buildEmbeddedUrl(
   baseUrl: string,
   userId?: number,

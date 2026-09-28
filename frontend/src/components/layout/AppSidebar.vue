@@ -241,6 +241,7 @@ import VersionBadge from '@/components/common/VersionBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { sanitizeSvg } from '@/utils/sanitize'
 import { sanitizeUrl } from '@/utils/url'
+import { isChatGPTMenuItem } from '@/utils/embedded-url'
 import { FeatureFlags, makeSidebarFlag } from '@/utils/featureFlags'
 import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
 import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
@@ -776,10 +777,11 @@ const flagBatchImageAccess = () => canUseBatchImage.value
 // buildSelfNavItems 构造用户自己的导航项（用户端主菜单和管理员的"我的账户"子菜单共享这组声明）。
 // withDashboard=true 时包含仪表盘（用户端），false 时不含（管理员的个人区已经有独立仪表盘入口）。
 //
-// TopOpenAI: Grok 紧跟对话画图；保留新增鹈鹕展示入口。
+// TopOpenAI: Grok 和 ChatGPT 紧跟对话画图；保留新增鹈鹕展示入口。
 function buildSelfNavItems(withDashboard: boolean): NavItem[] {
   const items: NavItem[] = []
   const grokMenuItems: NavItem[] = []
+  const chatGPTMenuItems: NavItem[] = []
   const otherCustomMenuItems: NavItem[] = []
   for (const item of customMenuItemsForUser.value) {
     const navItem: NavItem = {
@@ -790,6 +792,8 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     }
     if (/^https:\/\/grok\.topopenai\.com(?:[/?#]|$)/i.test(item.url)) {
       grokMenuItems.push({ ...navItem, badge: t('nav.freeBadge') })
+    } else if (isChatGPTMenuItem(item)) {
+      chatGPTMenuItems.push({ ...navItem, badge: t('nav.freeBadge') })
     } else {
       otherCustomMenuItems.push(navItem)
     }
@@ -801,6 +805,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
     { path: '/images', label: t('nav.imageWorkbench'), icon: BatchImageIcon, hideInSimpleMode: true, badge: 'NEW' },
     ...grokMenuItems,
+    ...chatGPTMenuItems,
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: !authStore.isObserver },
     { path: '/available-channels', label: t('nav.availableChannels'), icon: ChannelIcon, hideInSimpleMode: true, featureFlag: flagAvailableChannels },

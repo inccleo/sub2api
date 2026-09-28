@@ -80,3 +80,18 @@ describe('AppSidebar subscription feature flag', () => {
     expect(componentSource).toMatch(/path: '\/purchase'[^\n]*label: purchaseNavLabel\.value/)
   })
 })
+
+describe('AppSidebar free custom menu placement', () => {
+  it('places ChatGPT directly after Grok and gives it the localized free badge', () => {
+    expect(componentSource).toContain('const chatGPTMenuItems: NavItem[] = []')
+    expect(componentSource).toContain("t('nav.freeBadge')")
+    expect(componentSource).toMatch(
+      /\.\.\.grokMenuItems,\s*\.\.\.chatGPTMenuItems,\s*\{ path: '\/batch-image'/,
+    )
+  })
+
+  it('recognizes the ChatGPT menu by label or TopOpenAI hostname', () => {
+    expect(componentSource).toContain('isChatGPTMenuItem(item)')
+    expect(componentSource).toContain("import { isChatGPTMenuItem } from '@/utils/embedded-url'")
+  })
+})

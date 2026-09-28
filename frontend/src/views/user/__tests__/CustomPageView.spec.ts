@@ -101,6 +101,18 @@ describe('custom page open button', () => {
     expect(click(button, 0).defaultPrevented).toBe(false)
   })
 
+  it('does not append login or embed parameters to the ChatGPT menu', () => {
+    appStore.cachedPublicSettings.custom_menu_items = [{
+      id: 'docs', label: 'ChatGPT', url: 'https://chatgpt.topopenai.com',
+    }]
+    const wrapper = mountPage()
+    const embeddedUrl = wrapper.get('iframe').attributes('src') ?? ''
+    expect(embeddedUrl).toBe('https://chatgpt.topopenai.com')
+    expect(embeddedUrl).not.toContain('user_id=')
+    expect(embeddedUrl).not.toContain('token=')
+    expect(embeddedUrl).not.toContain('ui_mode=')
+  })
+
   it('captures the pointer across iframe content and suppresses only the click following a drag', async () => {
     const { button } = mountEmbed()
     await pointer(button, 'pointerdown', 700, 24)

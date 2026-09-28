@@ -136,7 +136,7 @@ import { useAdminSettingsStore } from '@/stores/adminSettings'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { buildApiUrl } from '@/api/client'
-import { buildEmbeddedUrl, detectTheme } from '@/utils/embedded-url'
+import { buildEmbeddedUrl, detectTheme, isChatGPTMenuItem } from '@/utils/embedded-url'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 
@@ -241,8 +241,13 @@ const markdownSlug = computed(() => {
 
 const isMarkdownMode = computed(() => !!markdownSlug.value)
 
+const isChatGPTMenu = computed(() =>
+  menuItem.value ? isChatGPTMenuItem(menuItem.value) : false,
+)
+
 const embeddedUrl = computed(() => {
   if (!menuItem.value || isMarkdownMode.value) return ''
+  if (isChatGPTMenu.value) return menuItem.value.url
   return buildEmbeddedUrl(
     menuItem.value.url,
     authStore.user?.id,

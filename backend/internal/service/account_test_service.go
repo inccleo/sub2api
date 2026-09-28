@@ -153,6 +153,9 @@ type AccountTestService struct {
 	modelMetadataRegistryAt   time.Time
 	pluginManager             *PluginManager
 	openaiGatewayService      *OpenAIGatewayService
+	bpsProbeMu                sync.Mutex
+	bpsProbeAccounts          map[int64]struct{}
+	stateProbeAccounts        sync.Map
 	agentIdentityTaskMu       sync.Mutex
 	agentIdentityWS           agentIdentityWSConnectionInvalidator
 	// grokWSDialer is optional; realtime account tests use the default OpenAI-style
@@ -901,6 +904,9 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	// requests. The legacy account-test probe hard-codes ChatGPT Codex and
 	// silently bypasses the account's protocol toggle, producing misleading
 	// quality-test results.
+	if mode == AccountTestModeBPSTools {
+		return s.testExcelBPSToolRoundtrip(c, account, modelID)
+	}
 	if account.IsExcelBPSEnabled() && s.openaiGatewayService != nil {
 		return s.testExcelBPSAccountConnection(c, account, modelID, prompt)
 	}
@@ -1114,8 +1120,22 @@ func (s *AccountTestService) testExcelBPSAccountConnection(c *gin.Context, accou
 	probe := httptest.NewRecorder()
 	probeCtx, _ := gin.CreateTestContext(probe)
 	probeCtx.Request = c.Request.Clone(c.Request.Context())
+	if probeCtx.Request.Header == nil {
+		probeCtx.Request.Header = make(http.Header)
+	}
+	// Manual one-shot tests have no client conversation. Give them a scoped
+	// identity so enabling the session proxy does not break the test button.
+	// Explicit identities (including load-test sessions) remain unchanged.
+	if scope, _ := resolveOpenAIWSExecutionScope(probeCtx, body, 0); scope == "" {
+		probeCtx.Request.Header.Set("Session-Id", "account-test-"+uuid.NewString())
+	}
 	result, err := s.openaiGatewayService.Forward(probeCtx, probeCtx, account, body)
 	if err != nil {
+		// A single-account test has no other account to fail over to.
+		var failover *UpstreamFailoverError
+		if errors.As(err, &failover) && failover.ClientMessage != "" {
+			return s.sendErrorAndEnd(c, failover.ClientMessage)
+		}
 		return s.sendErrorAndEnd(c, err.Error())
 	}
 
@@ -3471,7 +3491,7 @@ func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID in
 
 	w := httptest.NewRecorder()
 	ginCtx, _ := gin.CreateTestContext(w)
-	ginCtx.Request = (&http.Request{}).WithContext(ctx)
+	ginCtx.Request = (&http.Request{Header: make(http.Header)}).WithContext(ctx)
 
 	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, "", AccountTestModeDefault)
 

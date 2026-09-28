@@ -250,7 +250,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/usage',
     name: 'Usage',
-    component: () => import('@/views/user/UsageView.vue'),
+    component: () => import('@/views/user/UsageEntryView.vue'),
     meta: {
       requiresAuth: true,
       requiresAdmin: false,
@@ -565,7 +565,7 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/admin/AccountsView.vue'),
     meta: {
       requiresAuth: true,
-      requiresAdmin: true,
+      requiresAccountManagement: true,
       title: 'Account Management',
       titleKey: 'admin.accounts.title',
       descriptionKey: 'admin.accounts.description'
@@ -878,7 +878,7 @@ router.beforeEach(async (to, _from, next) => {
     try {
       const status = await getSetupStatus()
       if (!status.needs_setup) {
-        next(resolveCompletedSetupRedirectPath(authStore.isAuthenticated, authStore.isAdmin))
+        next(resolveCompletedSetupRedirectPath(authStore.isAuthenticated, authStore.isAdmin, authStore.isObserver))
         return
       }
     } catch {
@@ -893,11 +893,15 @@ router.beforeEach(async (to, _from, next) => {
       // In backend mode, non-admin users should NOT be redirected away from login
       // (they are blocked from all protected routes, so redirecting would cause a loop)
       if (appStore.backendModeEnabled && !authStore.isAdmin) {
-        next()
+        if (authStore.isObserver) {
+          next('/admin/accounts')
+        } else {
+          next()
+        }
         return
       }
       // Admin users go to admin dashboard, regular users go to user dashboard
-      next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
+      next(authStore.isAdmin ? '/admin/dashboard' : authStore.isObserver ? '/admin/accounts' : '/dashboard')
       return
     }
     // Model Plaza:公开路由但受「启用开关 + 可选强制登录」双重控制(后端同口径 fail-closed)
@@ -953,6 +957,11 @@ router.beforeEach(async (to, _from, next) => {
     return
   }
 
+  if (to.meta.requiresAccountManagement && !authStore.canManageAccounts) {
+    next('/dashboard')
+    return
+  }
+
   // Check admin requirement
   if (requiresAdmin && !authStore.isAdmin) {
     // User is authenticated but not admin, redirect to user dashboard
@@ -965,7 +974,7 @@ router.beforeEach(async (to, _from, next) => {
     if (!adminSettingsStore.requestCaptureEnabled) { next('/admin/settings'); return }
   }
 
-  if (requiresAdmin && authStore.isAdmin) {
+  if ((requiresAdmin || to.meta.requiresAccountManagement) && authStore.isAdmin) {
     const adminComplianceStore = useAdminComplianceStore()
     if (!adminComplianceStore.initialized) {
       try {
@@ -1037,9 +1046,9 @@ router.beforeEach(async (to, _from, next) => {
     }
   }
 
-  // Backend mode: admin gets full access, non-admin blocked
+  // Backend mode: admins get full access; observers may use account management and their own usage.
   if (appStore.backendModeEnabled) {
-    if (authStore.isAuthenticated && authStore.isAdmin) {
+    if (authStore.isAuthenticated && (authStore.isAdmin || (authStore.isObserver && (to.meta.requiresAccountManagement || to.path === '/usage')))) {
       next()
       return
     }

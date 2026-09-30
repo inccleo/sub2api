@@ -79,9 +79,11 @@ func TestPrepareVerifiesDigestBeforeExecutingAndReusesCache(t *testing.T) {
 				digest = strings.Repeat("0", 64)
 			}
 			requests := 0
-			m := New(root, "1.2.3", "http://127.0.0.1:4040", strings.Repeat("x", 64))
+			m := New(root, "v1.2.3.4", "http://127.0.0.1:4040", strings.Repeat("x", 64))
 			m.client = &http.Client{Transport: transportFunc(func(req *http.Request) (*http.Response, error) {
 				requests++
+				require.NotContains(t, req.URL.String(), "1.2.3.4")
+				require.Contains(t, req.URL.Path, "v1.2.3")
 				require.NotContains(t, req.URL.String(), m.token)
 				body := data
 				if strings.Contains(req.URL.Path, "/releases/tags/") {
@@ -104,6 +106,9 @@ func TestPrepareVerifiesDigestBeforeExecutingAndReusesCache(t *testing.T) {
 }
 
 func TestStopCancelsPreparationAndCannotRestart(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux runtime")
+	}
 	m := New(t.TempDir(), "1.2.3", "http://127.0.0.1:4040", strings.Repeat("x", 64))
 	entered := make(chan struct{})
 	m.client = &http.Client{Transport: transportFunc(func(req *http.Request) (*http.Response, error) {
@@ -135,7 +140,7 @@ func TestManagedProcessGetsOnlyWorkerEnvironmentAndStops(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "python"), []byte(script), 0700))
 	t.Setenv("OPENAI_REAUTH_CONCURRENCY", "4")
 	t.Setenv("DATABASE_PASSWORD", "must-not-inherit")
-	m := New(root, "1.2.3", "http://127.0.0.1:4040", "synthetic-worker-token")
+	m := New(root, "v1.2.3.4", "http://127.0.0.1:4040", "synthetic-worker-token")
 	m.Ensure()
 	defer m.Stop()
 	require.Eventually(t, func() bool { _, err := os.Stat(filepath.Join(dir, "unrelated-secret")); return err == nil }, time.Second, 10*time.Millisecond)
@@ -151,4 +156,18 @@ func TestManagedProcessGetsOnlyWorkerEnvironmentAndStops(t *testing.T) {
 	require.Equal(t, "4", string(got))
 	m.Stop()
 	require.Equal(t, "stopped", m.Status().State)
+}
+
+func TestRuntimeVersionMapping(t *testing.T) {
+	for _, tc := range []struct{ input, want string }{
+		{"v2.9.6.1", "2.9.6"}, {"2.9.6.12", "2.9.6"},
+		{"v2.9.6", "2.9.6"}, {"2.9.6-rc.1", "2.9.6-rc.1"},
+		{"dev", "dev"}, {"2.9.6.1/evil", "2.9.6.1/evil"},
+	} {
+		t.Run(tc.input, func(t *testing.T) {
+			m := New(t.TempDir(), tc.input, "http://127.0.0.1:8081", "test")
+			defer m.Stop()
+			require.Equal(t, tc.want, m.version)
+		})
+	}
 }

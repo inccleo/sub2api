@@ -46,7 +46,13 @@ type Manager struct {
 func New(root, version, baseURL, token string) *Manager {
 	root, _ = filepath.Abs(root)
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Manager{root: root, version: strings.TrimPrefix(version, "v"), baseURL: baseURL, token: token,
+	version = strings.TrimPrefix(version, "v")
+	// Four-part TopAPI releases retain the upstream worker unchanged. Fetch its
+	// matching three-part release; archive digest validation still applies.
+	if parts := regexp.MustCompile(`^(\d+\.\d+\.\d+)\.\d+$`).FindStringSubmatch(version); parts != nil {
+		version = parts[1]
+	}
+	return &Manager{root: root, version: version, baseURL: baseURL, token: token,
 		ctx: ctx, cancel: cancel, client: &http.Client{Timeout: 5 * time.Minute},
 		status: Status{Mode: "managed", State: "idle"}}
 }

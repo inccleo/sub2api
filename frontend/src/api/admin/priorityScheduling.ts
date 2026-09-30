@@ -1,14 +1,6 @@
 import { apiClient } from '../client'
-export interface PriorityTeamsConfig {
-  enabled: boolean
-  cost_cny: number
-  window_hours: number
-  cny_per_billing_unit: number
-  window_source: 'explicit' | 'expiry' | 'first_usage'
-}
-export const defaultPriorityTeamsConfig = (): PriorityTeamsConfig => ({ enabled: true, cost_cny: 50, window_hours: 4, cny_per_billing_unit: 1, window_source: 'first_usage' })
 export interface PrioritySchedulingConfig {
-  teams: PriorityTeamsConfig
+  balance_protocols?: boolean
   enabled: boolean
   mode: 'experience' | 'balanced' | 'profit' | 'custom'
   group_ids: number[]
@@ -25,20 +17,13 @@ export interface PrioritySchedulingConfig {
   cost_weight: number
 }
 export interface PriorityCandidate {
-  teams_recovery: null | {
-    window_start: string
-    window_end: string
-    revenue_cny: number
-    cost_cny: number
-    profit_cny: number
-    shortfall_cny: number
-    remaining_seconds: number
-    needs_recovery: boolean
-    required_revenue_per_hour_cny: number
-  }
+  capacity_band?: number
+  selection_weight?: number
+  exploration_eligible?: boolean
+  bound_groups?: number
   profit: number | null
   margin: number | null
-  economics_source: 'usage' | 'rate' | 'unknown' | 'teams_window'
+  economics_source: 'usage' | 'rate' | 'unknown'
   revenue: number
   theoretical_cost: number
   profit_samples: number
@@ -59,6 +44,7 @@ export interface PriorityCandidate {
   quality_samples: number
 }
 export interface PrioritySnapshot {
+  selection_policy?: string
   at: string
   model: string
   group_id: number | null

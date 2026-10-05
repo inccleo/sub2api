@@ -81,17 +81,21 @@ describe('AppSidebar subscription feature flag', () => {
   })
 })
 
-describe('AppSidebar free custom menu placement', () => {
-  it('places ChatGPT directly after Grok and gives it the localized free badge', () => {
-    expect(componentSource).toContain('const chatGPTMenuItems: NavItem[] = []')
-    expect(componentSource).toContain("t('nav.freeBadge')")
-    expect(componentSource).toMatch(
-      /\.\.\.grokMenuItems,\s*\.\.\.chatGPTMenuItems,\s*\{ path: '\/batch-image'/,
-    )
+describe('AppSidebar smart operations group', () => {
+  const smartOpsBlock = componentSource.match(/path: '\/admin\/smart-ops'[\s\S]*?\n {4}\] \},/)?.[0] ?? ''
+  const pathsIn = (source: string) => [...source.matchAll(/path: '([^']+)'/g)].map(match => match[1])
+
+  it('nests request capture and the ticket harvest flow under 智能运维', () => {
+    expect(smartOpsBlock).not.toBe('')
+    expect(smartOpsBlock).toMatch(/path: '\/admin\/request-captures'[^\n]*featureFlag: \(\) => adminSettingsStore\.requestCaptureEnabled/)
+    expect(smartOpsBlock).toContain("path: '/admin/harvest-flow'")
+    // Each entry is declared once, so neither is still a top-level item.
+    expect(componentSource.match(/path: '\/admin\/request-captures'/g)).toHaveLength(1)
+    expect(componentSource.match(/path: '\/admin\/harvest-flow'/g)).toHaveLength(1)
   })
 
-  it('recognizes the ChatGPT menu by label or TopOpenAI hostname', () => {
-    expect(componentSource).toContain('isChatGPTMenuItem(item)')
-    expect(componentSource).toContain("import { isChatGPTMenuItem } from '@/utils/embedded-url'")
+  it('keeps the group in the same order as the 智能运维 tab bar', () => {
+    const navSource = readFileSync(resolve(dirname(componentPath), '../admin/operations/SmartOpsNav.vue'), 'utf8')
+    expect(pathsIn(smartOpsBlock).slice(1)).toEqual(pathsIn(navSource))
   })
 })

@@ -31,7 +31,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/typesafe"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/gin-gonic/gin"
@@ -139,6 +138,12 @@ func normalizeGrokAccountTestMode(mode string) string {
 
 // AccountTestService handles account testing operations
 type AccountTestService struct {
+	astraGatewayActionMu      sync.Mutex
+	astraSetupMu              sync.Mutex
+	astraSetupCancel          context.CancelFunc
+	astraSetupStatus          AstraSetupStatus
+	astraGatewayTestMu        sync.Mutex
+	astraGatewayLastTest      *AstraGatewayTestResult
 	accountRepo               AccountRepository
 	geminiTokenProvider       *GeminiTokenProvider
 	claudeTokenProvider       *ClaudeTokenProvider
@@ -412,6 +417,12 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	if account.IsOpenAI() {
+		if account.IsPrismBrowserEnabledForModel(modelID) {
+			if normalizeAccountTestMode(mode) != AccountTestModeDefault || testOpts.ImageDataURL != "" || testOpts.AudioDataURL != "" {
+				return s.sendErrorAndEnd(c, "Prism supports the default text test only")
+			}
+			return s.testPrismBrowserConnection(c, account, modelID, prompt)
+		}
 		return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
 	}
 
@@ -432,113 +443,47 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	if account.IsTypeSafe() {
-		return s.testTypeSafeAccountConnection(c, account, modelID, prompt)
+		return s.testTypeSafeAccountConnection(c, account, prompt)
 	}
 
 	return s.testClaudeAccountConnection(c, account, modelID)
 }
 
-const typeSafeAccountTestDefaultPrompt = "hi"
-
-func typeSafeAccountTestModel(account *Account, modelID string) string {
-	testModelID := strings.TrimSpace(modelID)
-	if account != nil {
-		testModelID = account.GetMappedModel(testModelID)
+func (s *AccountTestService) testPrismBrowserConnection(c *gin.Context, account *Account, modelID, prompt string) error {
+	if s.openaiGatewayService == nil {
+		return s.sendErrorAndEnd(c, "Prism gateway service is unavailable")
 	}
-	if typesafe.IsSupportedModel(testModelID) {
-		return testModelID
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		modelID = "gpt-5.6-sol"
 	}
-	return typesafe.JevLatestModel
-}
-
-func typeSafeAccountTestBody(model, prompt string) ([]byte, error) {
-	state := strings.TrimSpace(prompt)
-	if state == "" {
-		state = typeSafeAccountTestDefaultPrompt
+	modelID = account.GetMappedModel(modelID)
+	if prompt == "" {
+		prompt = "hi"
 	}
-	body, err := json.Marshal(map[string]any{
-		"model": model,
-		"state": state,
-		"questions": map[string]any{
-			"connectivity": map[string]any{
-				"type":         "noul",
-				"instructions": "Evaluate whether this is a connectivity probe",
-			},
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-	if _, err := typesafe.ValidateSystemOneRequest(body); err != nil {
-		return nil, err
-	}
-	return body, nil
-}
-
-// testTypeSafeAccountConnection probes native POST /v1/systemone. TypeSafe is
-// not Chat Completions or Anthropic Messages; falling through to the Claude
-// tester hits /v1/messages and FastAPI returns 404.
-func (s *AccountTestService) testTypeSafeAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
-	ctx := c.Request.Context()
-	testModelID := typeSafeAccountTestModel(account, modelID)
-
-	key := account.GetTypeSafeAPIKey()
-	if key == "" {
-		return s.sendErrorAndEnd(c, "No TypeSafe API key available")
-	}
-	baseURL, err := s.validateUpstreamBaseURL(account.GetTypeSafeBaseURL())
-	if err != nil {
-		return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid base URL: %s", err.Error()))
-	}
-	body, err := typeSafeAccountTestBody(testModelID, prompt)
-	if err != nil {
-		return s.sendErrorAndEnd(c, "Failed to create TypeSafe test payload")
-	}
-
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
-	c.Writer.Header().Set("Connection", "keep-alive")
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
-	c.Writer.Flush()
-
-	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
-	s.sendEvent(c, TestEvent{Type: "status", Text: "正在通过 /v1/systemone 测试连接"})
-
-	req, err := typesafe.NewSystemOneRequest(ctx, baseURL, key, body)
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: modelID})
+	body, err := json.Marshal(map[string]any{"model": modelID, "input": prompt, "stream": false})
 	if err != nil {
-		return s.sendErrorAndEnd(c, "Failed to create TypeSafe request")
+		return s.sendErrorAndEnd(c, "Invalid Prism test request")
 	}
-	account.ApplyHeaderOverrides(req.Header)
-
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
-	}
-	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+	response, _, status, err := s.openaiGatewayService.callPrismBrowser(c.Request.Context(), account, body)
 	if err != nil {
-		return s.sendErrorAndEnd(c, fmt.Sprintf("TypeSafe System One (/v1/systemone) request failed: %s", err.Error()))
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Prism adapter request failed: %s", err.Error()))
 	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		upstreamBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-		errMsg := fmt.Sprintf("TypeSafe System One (/v1/systemone) returned %d: %s", resp.StatusCode, string(upstreamBody))
-		if resp.StatusCode == http.StatusUnauthorized {
-			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
-		}
-		return s.sendErrorAndEnd(c, errMsg)
+	if status != http.StatusOK {
+		return s.sendErrorAndEnd(c, prismBrowserAdapterErrorMessage(status, response))
 	}
-
-	decoded, err := typesafe.DecodeSystemOneResponse(resp.Body)
-	if err != nil {
-		return s.sendErrorAndEnd(c, "Invalid TypeSafe System One response from /v1/systemone")
+	if !gjson.ValidBytes(response) || gjson.GetBytes(response, "status").String() != "completed" {
+		return s.sendErrorAndEnd(c, "Prism adapter returned no completed response")
 	}
-	text := string(decoded.Body)
-	var pretty bytes.Buffer
-	if json.Indent(&pretty, decoded.Body, "", "  ") == nil {
-		text = pretty.String()
+	answer := gjson.GetBytes(response, "output.0.content.0.text").String()
+	if answer == "" {
+		return s.sendErrorAndEnd(c, "Prism adapter returned no text")
 	}
-	s.sendEvent(c, TestEvent{Type: "content", Text: text})
+	s.sendEvent(c, TestEvent{Type: "content", Text: answer})
 	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 	return nil
 }
@@ -669,7 +614,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	// Create Claude Code style payload (same for all account types)
 	payload, err := createTestPayload(testModelID)
 	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
-		payload, err = createPelicanClaudePayload(testModelID, options.prompt)
+		payload, err = createPelicanClaudePayload(testModelID, options.prompt, options.reasoningEffort)
 	}
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
@@ -749,6 +694,9 @@ func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Con
 	c.Writer.Flush()
 
 	payload, err := createTestPayload(testModelID)
+	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
+		payload, err = createPelicanClaudePayload(testModelID, options.prompt, options.reasoningEffort)
+	}
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
 	}
@@ -1069,6 +1017,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	}
 
 	// 账号级请求头覆写：测试请求与真实转发保持一致的最终头
+	applyOpenAIAPIKeyIdentityHeaders(req.Header, credentialAccount, credentialAccount.GetOpenAIUserAgent())
 	credentialAccount.ApplyHeaderOverrides(req.Header)
 
 	// Get proxy URL
@@ -2359,6 +2308,8 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Authorization", "Bearer "+authToken)
 
+	applyOpenAIAPIKeyIdentityHeaders(req.Header, account, account.GetOpenAIUserAgent())
+
 	// 官方 OpenCode / Command Code 上游收敛为规范客户端 UA，与真实转发路径一致。
 	applyOpenCodeUpstreamUserAgent(account, apiURL, req.Header)
 
@@ -2497,6 +2448,7 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 	}
 
 	// 账号级请求头覆写：测试请求与真实转发保持一致的最终头
+	applyOpenAIAPIKeyIdentityHeaders(req.Header, credentialAccount, credentialAccount.GetOpenAIUserAgent())
 	account.ApplyHeaderOverrides(req.Header)
 
 	proxyURL := ""
@@ -3036,13 +2988,25 @@ func createOpenAIChatCompletionsTestPayload(modelID string, prompt string) map[s
 func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader) error {
 	reader := bufio.NewReader(body)
 	usage := startPelicanTestStream(c, "anthropic")
+	// The connection probe only proves the account answers; a Pelican answer
+	// that stopped early is reported with the reason instead of as a success.
+	pelican := pelicanTestRequested(c)
+	stopReason, refusalCategory := "", ""
+	complete := func() error {
+		if pelican {
+			if failure := pelicanClaudeStopFailure(stopReason, refusalCategory); failure != "" {
+				return s.sendErrorAndEnd(c, failure)
+			}
+		}
+		s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+		return nil
+	}
 
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
-				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-				return nil
+				return complete()
 			}
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Stream read error: %s", err.Error()))
 		}
@@ -3055,8 +3019,7 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 		jsonStr := sseDataPrefix.ReplaceAllString(line, "")
 		usage.read(jsonStr)
 		if jsonStr == "[DONE]" {
-			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-			return nil
+			return complete()
 		}
 
 		var data map[string]any
@@ -3073,9 +3036,17 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 					s.sendEvent(c, TestEvent{Type: "content", Text: text})
 				}
 			}
+		case "message_delta":
+			if delta, ok := data["delta"].(map[string]any); ok {
+				if reason, ok := delta["stop_reason"].(string); ok {
+					stopReason = reason
+				}
+				if details, ok := delta["stop_details"].(map[string]any); ok {
+					refusalCategory, _ = details["category"].(string)
+				}
+			}
 		case "message_stop":
-			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-			return nil
+			return complete()
 		case "error":
 			errorMsg := "Unknown error"
 			if errData, ok := data["error"].(map[string]any); ok {
@@ -3281,6 +3252,7 @@ func (s *AccountTestService) testOpenAIImageAPIKey(c *gin.Context, ctx context.C
 	req.Header.Set("Authorization", "Bearer "+authToken)
 
 	// 账号级请求头覆写：测试请求与真实转发保持一致的最终头
+	applyOpenAIAPIKeyIdentityHeaders(req.Header, account, account.GetOpenAIUserAgent())
 	account.ApplyHeaderOverrides(req.Header)
 
 	proxyURL := ""

@@ -81,9 +81,9 @@ type ImageChatConfig struct {
 }
 
 type Config struct {
-	DesktopAuth             DesktopAuthConfig             `mapstructure:"desktop_auth"`
-	ImageChat               ImageChatConfig               `mapstructure:"image_chat"`
-	Runtime                 RuntimeConfig                 `mapstructure:"runtime"`
+	DesktopAuth             DesktopAuthConfig `mapstructure:"desktop_auth"`
+	ImageChat               ImageChatConfig   `mapstructure:"image_chat"`
+	Runtime                 RuntimeConfig     `mapstructure:"runtime"`
 	astraRoutingLoader      atomic.Pointer[astraRoutingLoader]
 	Server                  ServerConfig                  `mapstructure:"server"`
 	Log                     LogConfig                     `mapstructure:"log"`

@@ -14,11 +14,9 @@ import (
 )
 
 const (
-	DefaultBaseURL  = "https://api.typesafe.ai"
-	SystemOnePath   = "/v1/systemone"
-	JevLatestModel  = "jev-latest"
-	JevPreviewModel = "jev-preview"
-	Jev1130Model    = "jev-1.13.0"
+	DefaultBaseURL = "https://api.typesafe.ai"
+	SystemOnePath  = "/v1/systemone"
+	JevLatestModel = "jev-latest"
 )
 
 type Question struct {
@@ -49,29 +47,6 @@ type SystemOneResponse struct {
 	Usage Usage
 }
 
-func SupportedModels() []string {
-	return []string{JevLatestModel, JevPreviewModel, Jev1130Model}
-}
-
-func IsSupportedModel(model string) bool {
-	switch model {
-	case JevLatestModel, JevPreviewModel, Jev1130Model:
-		return true
-	default:
-		return false
-	}
-}
-
-func RequestedModel(body []byte) string {
-	var envelope struct {
-		Model string `json:"model"`
-	}
-	if json.Unmarshal(body, &envelope) != nil {
-		return ""
-	}
-	return strings.TrimSpace(envelope.Model)
-}
-
 func NewSystemOneRequest(ctx context.Context, baseURL, key string, body []byte) (*http.Request, error) {
 	endpoint, err := url.JoinPath(strings.TrimRight(baseURL, "/"), SystemOnePath)
 	if err != nil {
@@ -86,37 +61,83 @@ func NewSystemOneRequest(ctx context.Context, baseURL, key string, body []byte) 
 	return req, nil
 }
 
+// MaxSystemOneResponseBytes bounds a buffered System One response body.
+const MaxSystemOneResponseBytes = 4 << 20
+
+var ErrSystemOneResponseTooLarge = errors.New("typesafe response exceeds size limit")
+
 func DecodeSystemOneResponse(r io.Reader) (*SystemOneResponse, error) {
-	body, err := io.ReadAll(io.LimitReader(r, 4<<20))
-	if err != nil || !json.Valid(body) {
+	body, err := io.ReadAll(io.LimitReader(r, MaxSystemOneResponseBytes+1))
+	if err != nil {
 		return nil, errors.New("typesafe invalid response")
 	}
-	var envelope struct {
-		Model string `json:"model"`
-		Usage Usage  `json:"usage"`
+	// A truncated body would otherwise surface as a misleading "invalid JSON".
+	if len(body) > MaxSystemOneResponseBytes {
+		return nil, ErrSystemOneResponseTooLarge
 	}
-	if err := json.Unmarshal(body, &envelope); err != nil {
+	if !json.Valid(body) {
 		return nil, errors.New("typesafe invalid response")
 	}
-	return &SystemOneResponse{Body: body, Model: envelope.Model, Usage: envelope.Usage}, nil
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(body, &envelope); err != nil || envelope == nil {
+		return nil, errors.New("typesafe invalid response")
+	}
+	// The upstream already answered (and charged); an unexpected model or usage
+	// shape must not discard the answer, so both are decoded leniently.
+	var model string
+	_ = json.Unmarshal(envelope["model"], &model)
+	var usage map[string]json.RawMessage
+	_ = json.Unmarshal(envelope["usage"], &usage)
+	return &SystemOneResponse{
+		Body:  body,
+		Model: model,
+		Usage: Usage{
+			InputTokens:  systemOneTokenCount(usage["input_tokens"]),
+			OutputTokens: systemOneTokenCount(usage["output_tokens"]),
+		},
+	}, nil
+}
+
+// maxSystemOneTokenCount bounds a reported token count before int conversion.
+const maxSystemOneTokenCount = 1 << 40
+
+// systemOneTokenCount accepts integer, float, or numeric-string token counts.
+func systemOneTokenCount(raw json.RawMessage) int {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return 0
+	}
+	if raw[0] == '"' {
+		var text string
+		if json.Unmarshal(raw, &text) != nil {
+			return 0
+		}
+		raw = json.RawMessage(strings.TrimSpace(text))
+	}
+	var number json.Number
+	if json.Unmarshal(raw, &number) != nil {
+		return 0
+	}
+	value, err := number.Float64()
+	if err != nil || math.IsNaN(value) || value <= 0 {
+		return 0
+	}
+	if value > maxSystemOneTokenCount {
+		value = maxSystemOneTokenCount
+	}
+	return int(math.Round(value))
 }
 
 // Evaluate performs one attempt. The caller owns timeouts, retries and key rotation.
 func Evaluate(ctx context.Context, client *http.Client, baseURL, key string, input Request) (*Result, int, error) {
-	endpoint, err := url.JoinPath(strings.TrimRight(baseURL, "/"), "/v1/systemone")
-	if err != nil {
-		return nil, 0, errors.New("typesafe invalid endpoint")
-	}
 	body, err := json.Marshal(input)
 	if err != nil {
 		return nil, 0, errors.New("typesafe invalid request")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	req, err := NewSystemOneRequest(ctx, baseURL, key, body)
 	if err != nil {
-		return nil, 0, errors.New("typesafe invalid request")
+		return nil, 0, err
 	}
-	req.Header.Set("Authorization", "Bearer "+key)
-	req.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {

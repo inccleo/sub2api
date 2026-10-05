@@ -181,8 +181,6 @@ func TestDetectModelPlatform(t *testing.T) {
 		{name: "abab legacy", model: "abab6.5-chat", platform: PlatformMiniMax, ok: true},
 		{name: "abab7 legacy", model: "abab7-chat-preview", platform: PlatformMiniMax, ok: true},
 		{name: "jev", model: "jev-latest", platform: PlatformTypeSafe, ok: true},
-		{name: "jev preview", model: "jev-preview", platform: PlatformTypeSafe, ok: true},
-		{name: "jev pinned", model: "jev-1.13.0", platform: PlatformTypeSafe, ok: true},
 		{name: "typesafe prefix", model: "typesafe/jev-latest", platform: PlatformTypeSafe, ok: true},
 		{name: "abab unrelated namespace", model: "abab-other", ok: false},
 		{name: "unknown k3 alias", model: "k3-preview", ok: false},

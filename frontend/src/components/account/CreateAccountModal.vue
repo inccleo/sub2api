@@ -1543,6 +1543,7 @@
             <div v-if="modelRestrictionMode === 'whitelist'">
               <ModelWhitelistSelector
                 v-model="allowedModels"
+                :model-mappings="modelMappings"
                 :platform="form.platform"
                 :sync-credentials="syncPreviewCredentials"
                 @upstream-synced="upstreamModelsPreviewed = true"
@@ -2030,6 +2031,7 @@
           <div v-if="modelRestrictionMode === 'whitelist'">
             <ModelWhitelistSelector
               v-model="allowedModels"
+              :model-mappings="modelMappings"
               platform="anthropic"
               :sync-credentials="syncPreviewCredentials"
               @upstream-synced="upstreamModelsPreviewed = true"
@@ -2371,6 +2373,7 @@
           <div v-if="modelRestrictionMode === 'whitelist'">
             <ModelWhitelistSelector
               v-model="allowedModels"
+              :model-mappings="modelMappings"
               :platform="form.platform"
               :sync-credentials="syncPreviewCredentials"
               @upstream-synced="upstreamModelsPreviewed = true"
@@ -4279,13 +4282,12 @@ function selectOpenCodeGoPlatform() {
   resetAdaptiveBaseUrls('opencode_go', openCodeAccountMode.value)
   openCodeGoProtocolRules.value = cloneOpenCodeGoProtocolRules(defaultOpenCodeProtocolRules(openCodeAccountMode.value))
 }
-
 function selectTypeSafePlatform() {
   form.platform = 'typesafe'
   form.type = 'apikey'
   accountCategory.value = 'apikey'
   apiKeyBaseUrl.value = 'https://api.typesafe.ai'
-  allowedModels.value = ['jev-latest', 'jev-preview', 'jev-1.13.0']
+  allowedModels.value = ['jev-latest']
 }
 // 账号类型 / 协议变更时同步默认 base url。
 watch(openCodeAccountMode, (mode, previousMode) => {
@@ -4871,8 +4873,9 @@ watch(
     modelMappings.value = []
     if (newPlatform === 'typesafe') {
       accountCategory.value = 'apikey'
-      form.type = 'apikey'
-      allowedModels.value = ['jev-latest', 'jev-preview', 'jev-1.13.0']
+      // Grok 等平台会把模式切到映射；TypeSafe 只用白名单写入 jev-latest。
+      modelRestrictionMode.value = 'whitelist'
+      allowedModels.value = ['jev-latest']
     }
     // Antigravity: 默认使用映射模式并填充默认映射
     if (newPlatform === 'antigravity') {

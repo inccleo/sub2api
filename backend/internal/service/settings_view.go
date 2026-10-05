@@ -186,6 +186,7 @@ type SystemSettings struct {
 	DailyCheckinEnabled               bool
 	DailyCheckinReward                float64
 	DailyCheckinWeeklyBonus           float64
+	CyberPolicyUserAllowlist          string
 
 	// Model fallback configuration
 	EnableModelFallback      bool   `json:"enable_model_fallback"`

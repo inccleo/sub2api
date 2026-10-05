@@ -430,6 +430,9 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		return nil, errors.New("typesafe accounts only support apikey credentials")
 	}
 	accountExtra = MergeOpenAICodexTicketExtra(accountExtra, nil)
+	if input.Platform == PlatformTypeSafe && input.Type != AccountTypeAPIKey {
+		return nil, errors.New("typesafe accounts only support apikey credentials")
+	}
 	// Probe/session state is system-managed. New accounts always start with automatic refresh disabled.
 	delete(accountExtra, UpstreamBillingProbeEnabledExtraKey)
 	delete(accountExtra, UpstreamBillingRateSyncEnabledExtraKey)
@@ -454,7 +457,7 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		Schedulable: true,
 	}
 	if input.ProbeEnabled != nil && *input.ProbeEnabled {
-		if isUpstreamBillingProbeAccount(account) {
+		if isUpstreamBillingProbeAccount(account) && account.Platform != PlatformTypeSafe {
 			if account.Extra == nil {
 				account.Extra = make(map[string]any)
 			}

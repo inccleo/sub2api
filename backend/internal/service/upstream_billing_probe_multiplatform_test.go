@@ -286,7 +286,7 @@ func TestUpstreamBillingProbeSetAccountEnabledAcceptsGrokAPIKey(t *testing.T) {
 	require.ErrorIs(t, err, ErrUpstreamBillingProbeAccountInvalid)
 }
 
-func TestBuildAccountForCreateAcceptsTypeSafeAPIKeyWithProbeEnabled(t *testing.T) {
+func TestBuildAccountForCreateIgnoresTypeSafeProbeEnabled(t *testing.T) {
 	enabled := true
 	account, err := buildAccountForCreate(&CreateAccountInput{
 		Name:         "typesafe",
@@ -296,5 +296,5 @@ func TestBuildAccountForCreateAcceptsTypeSafeAPIKeyWithProbeEnabled(t *testing.T
 		ProbeEnabled: &enabled,
 	}, map[string]any{})
 	require.NoError(t, err)
-	require.Equal(t, true, account.Extra[UpstreamBillingProbeEnabledExtraKey])
+	require.NotContains(t, account.Extra, UpstreamBillingProbeEnabledExtraKey)
 }

@@ -36,7 +36,7 @@ git cherry-pick -x <commit-sha>
 
 The `Custom release` workflow publishes only tags formatted as `vMAJOR.MINOR.PATCH.CUSTOM`, such as `v0.1.162.1`. It builds the Linux `amd64` archive and `checksums.txt`; full unit tests run on branch `CI`, and focused recharge regressions also gate every custom release, and an unchanged frontend dist is restored from cache instead of rebuilt. The inherited `Release` workflow explicitly excludes four-part tags so both workflows cannot write the same GitHub Release; do not dispatch the inherited workflow manually for production.
 
-Production sets `UPDATE_REPOSITORY=inccleo/sub2api`. `backend/internal/service/update_service.go` validates this setting before it calls the GitHub API, so the administrator update flow resolves this fork rather than the upstream project. The current production release is `v2.10.0.1`, based on upstream `v2.10.0` and published from `custom-main-ranxi-v2.10.0`. Do not use the inherited upstream `Release` workflow for production artifacts.
+Production sets `UPDATE_REPOSITORY=inccleo/sub2api`. `backend/internal/service/update_service.go` validates this setting before it calls the GitHub API, so the administrator update flow resolves this fork rather than the upstream project. The `v2.10.0` production release line is based on upstream `v2.10.0` and published from `custom-main-ranxi-v2.10.0`; see the private operations runbook for the currently deployed custom patch. Do not use the inherited upstream `Release` workflow for production artifacts.
 
 The private operations runbook, deployment procedure, database backup requirement, and rollback steps live outside this source repository in `topapi/docs/deploy/sub2api-custom-fork-update-runbook.md`.
 

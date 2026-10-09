@@ -290,9 +290,10 @@ func TestQuoteRechargeBonus(t *testing.T) {
 		require.Equal(t, rechargeBonusQuote{PayBase: 100, Credited: 100}, quoteRechargeBonus(cfg, 100, "USD"))
 	})
 
-	t.Run("nil config and empty tiers yield plain conversion", func(t *testing.T) {
-		require.Equal(t, rechargeBonusQuote{PayBase: 100, Credited: 100}, quoteRechargeBonus(nil, 100, "USD"))
-		require.Equal(t, rechargeBonusQuote{PayBase: 100, Credited: 14}, quoteRechargeBonus(&PaymentConfig{BalanceRechargeMultiplier: 0.14}, 100, "CNY"))
+	t.Run("nil config and empty tiers preserve fork package gifts", func(t *testing.T) {
+		require.Equal(t, rechargeBonusQuote{PayBase: 100, Credited: 120, Bonus: 20, Percent: 20}, quoteRechargeBonus(nil, 100, "USD"))
+		require.Equal(t, rechargeBonusQuote{PayBase: 100, Credited: 16.8, Bonus: 2.8, Percent: 20}, quoteRechargeBonus(&PaymentConfig{BalanceRechargeMultiplier: 0.14}, 100, "CNY"))
+		require.Equal(t, rechargeBonusQuote{PayBase: 200, Credited: 200}, quoteRechargeBonus(nil, 200, "USD"))
 	})
 }
 

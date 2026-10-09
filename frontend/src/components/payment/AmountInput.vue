@@ -5,7 +5,7 @@
       <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
         {{ t('payment.quickAmounts') }}
       </label>
-      <div class="grid grid-cols-3 gap-x-4 gap-y-4 pt-2">
+      <div :class="['grid gap-4 pt-2', packageMode ? 'grid-cols-2 lg:grid-cols-4' : 'grid-cols-3']">
         <button
           v-for="amt in filteredAmounts"
           :key="amt"
@@ -48,8 +48,8 @@
       </div>
     </div>
 
-    <!-- Custom Amount Input -->
-    <div>
+    <!-- Custom amounts are unavailable when fixed packages are supplied. -->
+    <div v-if="!packageMode">
       <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
         {{ t('payment.customAmount') }}
       </label>
@@ -73,11 +73,12 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { RechargeBonusTier } from '@/types/payment'
+import type { RechargeBonusTier, RechargePackage } from '@/types/payment'
 import { formatRechargeBonusNumber, quoteRechargeBonus, type RechargeBonusMode } from '@/utils/rechargeBonus'
 import { formatPaymentAmount } from './currency'
 
 const props = withDefaults(defineProps<{
+  packages?: RechargePackage[]
   amounts?: number[]
   modelValue: number | null
   min?: number
@@ -108,12 +109,14 @@ const { t } = useI18n()
 
 const customText = ref('')
 
+const packageMode = computed(() => props.bonusTiers.length === 0 && !!props.packages?.length)
+
 // 0 = no limit
 const filteredAmounts = computed(() =>
-  props.amounts.filter((a) => (props.min <= 0 || a >= props.min) && (props.max <= 0 || a <= props.max))
+  (packageMode.value ? props.packages!.map(pkg => pkg.amount) : props.amounts).filter((a) => (props.min <= 0 || a >= props.min) && (props.max <= 0 || a <= props.max))
 )
 
-const showSecondLine = computed(() => props.bonusTiers.length > 0)
+const showSecondLine = computed(() => props.bonusTiers.length > 0 || packageMode.value)
 
 function currencyDigits(): number {
   if (!props.currency) return 2
@@ -126,6 +129,7 @@ function currencyDigits(): number {
 
 function quoteFor(amt: number) {
   return quoteRechargeBonus(props.bonusTiers, amt, {
+    packages: props.packages,
     multiplier: props.multiplier,
     mode: props.bonusMode,
     currencyDigits: currencyDigits(),
@@ -134,13 +138,17 @@ function quoteFor(amt: number) {
 
 // 价签文案：赠金「+20%」，折扣「20% OFF」
 function badgeText(amt: number): string {
+  if (packageMode.value) {
+    const gift = props.packages!.find(pkg => pkg.amount === amt)?.bonus ?? 0
+    return t('payment.bonusAmount', { amount: formatPaymentAmount(gift, props.currency) })
+  }
   const percent = formatRechargeBonusNumber(quoteFor(amt).percent)
   return props.bonusMode === 'discount' ? `${percent}% OFF` : `+${percent}%`
 }
 
 function secondLine(amt: number): string {
   const quote = quoteFor(amt)
-  if (props.bonusMode === 'discount') {
+  if (quote.mode === 'discount') {
     return t('payment.rechargeBonus.payShort', { amount: formatPaymentAmount(quote.payBase, props.currency) })
   }
   return t('payment.rechargeBonus.creditedShort', { amount: '$' + quote.credited.toFixed(2) })

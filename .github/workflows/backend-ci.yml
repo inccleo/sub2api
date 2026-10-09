@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     # Branch pushes only. Four-part custom tags already run Custom release;
     # firing this workflow on those tags queued extra jobs against the hotfix.

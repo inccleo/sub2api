@@ -1,6 +1,8 @@
 .PHONY: build build-backend build-frontend test test-backend test-frontend test-frontend-critical
 
 FRONTEND_CRITICAL_VITEST := \
+	src/components/payment/__tests__/AmountInput.spec.ts \
+	src/utils/__tests__/rechargeBonus.spec.ts \
 	src/components/admin/__tests__/HarvestGatewayBorrowPanel.spec.ts \
 	src/components/admin/__tests__/AstraGatewayRuntime.spec.ts \
 	src/components/admin/__tests__/AstraGatewayHistory.spec.ts \

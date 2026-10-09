@@ -272,7 +272,8 @@ type rechargeBonusQuote struct {
 }
 
 // quoteRechargeBonus 按配置模式报价。currency 用于折扣模式实付基数的精度。
-// 未配置阶梯、未命中、或折扣百分比 ≥ 100（非法历史数据，fail-safe）时按无优惠处理。
+// 未配置阶梯时保留本 fork 的固定套餐；显式阶梯优先且不叠加套餐赠送。
+// 已配置阶梯但未命中、或折扣百分比 ≥ 100 时按无优惠处理。
 func quoteRechargeBonus(cfg *PaymentConfig, paymentAmount float64, currency string) rechargeBonusQuote {
 	multiplier := defaultBalanceRechargeMultiplier
 	var tiers []RechargeBonusTier
@@ -284,6 +285,13 @@ func quoteRechargeBonus(cfg *PaymentConfig, paymentAmount float64, currency stri
 	}
 	base := calculateCreditedBalance(paymentAmount, multiplier)
 	quote := rechargeBonusQuote{PayBase: paymentAmount, Credited: base}
+	if len(tiers) == 0 && paymentAmount > 0 && !math.IsInf(paymentAmount, 0) {
+		gift := rechargeBonusForAmount(paymentAmount)
+		quote.Credited = calculateCreditedBalanceWithBonus(paymentAmount, gift, multiplier)
+		quote.Bonus = decimal.NewFromFloat(quote.Credited).Sub(decimal.NewFromFloat(base)).Round(2).InexactFloat64()
+		quote.Percent = gift / paymentAmount * 100
+		return quote
+	}
 
 	tier, ok := matchRechargeBonusTier(tiers, paymentAmount)
 	if !ok || tier.BonusPercent <= 0 {

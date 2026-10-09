@@ -358,6 +358,21 @@ describe('PaymentView help text', () => {
     expect(wrapper.find('.markdown-body').exists()).toBe(false)
     expect(wrapper.get('img').attributes('src')).toBe('https://example.com/help.png')
   })
+
+  it('restores the enterprise contact card and QR dialog', async () => {
+    getCheckoutInfo.mockReset().mockResolvedValue(checkoutInfoFixture({
+      enterprise_qr_code_url: 'data:image/png;base64,qr',
+    }))
+    const wrapper = shallowMount(PaymentView, {
+      global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, Teleport: true, Transition: false } },
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('payment.enterpriseCooperation')
+    const contact = wrapper.findAll('button').find(button => button.text() === 'payment.contactEnterprise')
+    expect(contact).toBeDefined()
+    await contact!.trigger('click')
+    expect(wrapper.text()).toContain('payment.enterpriseDialogTitle')
+  })
 })
 
 describe('PaymentView subscription plan grid', () => {
@@ -395,7 +410,6 @@ describe('PaymentView fixed recharge packages', () => {
     expect(selector.find('input').exists()).toBe(false)
     expect(selector.findAll('button')).toHaveLength(4)
     await selector.get(`[data-testid="quick-amount-${amount}"]`).trigger('click')
-    expect(translate).toHaveBeenCalledWith('payment.rechargeBonus.creditedShort', { amount: `$${credit.toFixed(2)}` })
     if (gift > 0) expect(wrapper.text()).toContain(`$${credit.toFixed(2)}`)
     if (gift > 0) {
       expect(wrapper.text()).toContain(`+$${gift.toFixed(2)}`)

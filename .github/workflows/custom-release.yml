@@ -16,8 +16,8 @@ on:
 permissions:
   contents: write
 
-# Build+publish only. Unit tests already run in CI on the branch push; re-running
-# ./internal/service here added ~5 minutes to every production hotfix.
+# Full tests run in branch CI. Keep the recharge customization gate here as well:
+# a tagged build must never publish after losing package gifts during an upstream merge.
 jobs:
   release-linux-amd64:
     runs-on: ubuntu-latest
@@ -59,25 +59,27 @@ jobs:
           key: ${{ runner.os }}-frontend-dist-${{ steps.frontend.outputs.hash }}
 
       - name: Set up pnpm
-        if: steps.frontend-dist.outputs.cache-hit != 'true'
         uses: pnpm/action-setup@b0f76dfb45f55f8421693e4803ac7bb65143bd34 # v6
         with:
           version: 9
 
       - name: Set up Node.js
-        if: steps.frontend-dist.outputs.cache-hit != 'true'
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '20'
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
 
-      - name: Build frontend
-        if: steps.frontend-dist.outputs.cache-hit != 'true'
+      - name: Verify recharge page customization
         working-directory: frontend
         run: |
           pnpm install --frozen-lockfile
-          pnpm run build
+          pnpm exec vitest run src/components/payment/__tests__/AmountInput.spec.ts src/views/user/__tests__/PaymentView.spec.ts src/utils/__tests__/rechargeBonus.spec.ts
+
+      - name: Build frontend
+        if: steps.frontend-dist.outputs.cache-hit != 'true'
+        working-directory: frontend
+        run: pnpm run build
 
       - name: Verify embedded frontend dist
         run: |
@@ -90,6 +92,10 @@ jobs:
           go-version-file: backend/go.mod
           check-latest: false
           cache-dependency-path: backend/go.sum
+
+      - name: Verify recharge order customization
+        working-directory: backend
+        run: go test -tags=unit ./internal/service -run '^TestCreateOrderPreservesRechargePackages$' -count=1
 
       - name: Build Linux amd64 archive and checksum
         id: archive

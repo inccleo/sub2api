@@ -27,6 +27,15 @@ func DefaultRechargePackages() []RechargePackage {
 	return packages
 }
 
+// CheckoutRechargePackages preserves this fork's fixed packages unless an administrator
+// explicitly configures upstream tiers. Never stack the two promotions.
+func CheckoutRechargePackages(cfg *PaymentConfig) []RechargePackage {
+	if cfg != nil && len(cfg.RechargeBonusTiers) > 0 {
+		return nil
+	}
+	return DefaultRechargePackages()
+}
+
 func normalizeBalanceRechargeMultiplier(multiplier float64) float64 {
 	if math.IsNaN(multiplier) || math.IsInf(multiplier, 0) || multiplier <= 0 {
 		return defaultBalanceRechargeMultiplier

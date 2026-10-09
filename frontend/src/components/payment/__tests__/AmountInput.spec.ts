@@ -11,6 +11,25 @@ vi.mock('vue-i18n', () => ({
 enableAutoUnmount(afterEach)
 
 describe('recharge package selector', () => {
+  it('filters packages by limits and converts the gift with the credit multiplier', () => {
+    const wrapper = mount(AmountInput, { props: {
+      modelValue: null, min: 100, max: 500, multiplier: 0.14,
+      packages: [{ amount: 50, bonus: 0 }, { amount: 100, bonus: 20 }, { amount: 500, bonus: 150 }, { amount: 1000, bonus: 400 }],
+    } })
+    expect(wrapper.findAll('button')).toHaveLength(2)
+    expect(wrapper.get('[data-testid="quick-amount-100"]').text()).toContain('$16.80')
+    expect(wrapper.get('[data-testid="quick-amount-500"]').text()).toContain('$91.00')
+  })
+
+  it('uses explicit upstream tiers without stacking package gifts', () => {
+    const wrapper = mount(AmountInput, { props: {
+      modelValue: null, amounts: [100], packages: [{ amount: 100, bonus: 20 }],
+      bonusTiers: [{ min_amount: 100, bonus_percent: 10 }],
+    } })
+    expect(wrapper.find('input').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="quick-amount-100"]').text()).toContain('$110.00')
+  })
+
   it('offers only the configured packages and does not accept a custom amount', async () => {
     const wrapper = mount(AmountInput, {
       props: {

@@ -34,8 +34,23 @@ git cherry-pick -x <commit-sha>
 
 ## Releases and in-app updates
 
-The `Custom release` workflow publishes only tags formatted as `vMAJOR.MINOR.PATCH.CUSTOM`, such as `v0.1.162.1`. It builds the Linux `amd64` archive and `checksums.txt`; unit tests stay on branch `CI`, and an unchanged frontend dist is restored from cache instead of rebuilt. The inherited `Release` workflow explicitly excludes four-part tags so both workflows cannot write the same GitHub Release; do not dispatch the inherited workflow manually for production.
+The `Custom release` workflow publishes only tags formatted as `vMAJOR.MINOR.PATCH.CUSTOM`, such as `v0.1.162.1`. It builds the Linux `amd64` archive and `checksums.txt`; full unit tests run on branch `CI`, and focused recharge regressions also gate every custom release, and an unchanged frontend dist is restored from cache instead of rebuilt. The inherited `Release` workflow explicitly excludes four-part tags so both workflows cannot write the same GitHub Release; do not dispatch the inherited workflow manually for production.
 
 Production sets `UPDATE_REPOSITORY=inccleo/sub2api`. `backend/internal/service/update_service.go` validates this setting before it calls the GitHub API, so the administrator update flow resolves this fork rather than the upstream project. The current production release is `v2.10.0.1`, based on upstream `v2.10.0` and published from `custom-main-ranxi-v2.10.0`. Do not use the inherited upstream `Release` workflow for production artifacts.
 
 The private operations runbook, deployment procedure, database backup requirement, and rollback steps live outside this source repository in `topapi/docs/deploy/sub2api-custom-fork-update-runbook.md`.
+
+## Recharge packages: mandatory upgrade gate
+
+When `RECHARGE_BONUS_TIERS` is empty, preserve the TopAPI fixed packages:
+50 → 50, 100 → 120, 500 → 650, 1000 → 1400 (before the configured balance multiplier).
+`checkout-info`, package cards, the checkout summary, and `CreateOrder` must agree.
+Explicit upstream tiers replace these gifts, never stack with them. Non-package API
+amounts do not receive fixed gifts; subscription pricing remains separate.
+Persist the free USD portion in `bonus_amount` so affiliate rebates exclude gifts.
+
+Before every upstream upgrade, run `make test-frontend` (including AmountInput and
+PaymentView), plus `go test -tags=unit ./internal/service -run TestCreateOrderPreservesRechargePackages -count=1`
+from `backend`. The latter creates real database orders and verifies the gateway amount.
+A failing customization test blocks release; do not dismiss it as stale without
+confirming the business rule. Verify package cards and totals on the deployed purchase page.

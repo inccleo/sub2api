@@ -1,4 +1,4 @@
-import type { RechargeBonusTier } from '@/types/payment'
+import type { RechargeBonusTier, RechargePackage } from '@/types/payment'
 
 export type { RechargeBonusTier }
 
@@ -145,6 +145,8 @@ export function calculateRechargeBonus(baseCredited: number, percent: number): n
 }
 
 export interface RechargeBonusQuoteOptions {
+  /** Fixed fork packages apply only when no explicit tiers are configured. */
+  packages?: RechargePackage[]
   multiplier?: number
   mode?: RechargeBonusMode
   /** 支付币种小数位，折扣模式实付基数按此精度四舍五入 */
@@ -165,6 +167,14 @@ export function quoteRechargeBonus(
   const digits = typeof opts.currencyDigits === 'number' && Number.isInteger(opts.currencyDigits) && opts.currencyDigits >= 0 ? opts.currencyDigits : 2
   const base = roundRechargeAmount(amount * rate)
   const quote: RechargeBonusQuote = { mode, percent: 0, payBase: amount, base, bonus: 0, credited: base, tier: null }
+  if (tiers.length === 0 && opts.packages?.length) {
+    const pkg = opts.packages.find(pkg => Math.abs(pkg.amount - amount) < AMOUNT_EPSILON)
+    quote.mode = 'bonus'
+    quote.credited = roundRechargeAmount((amount + (pkg?.bonus ?? 0)) * rate)
+    quote.bonus = roundRechargeAmount(quote.credited - base)
+    quote.percent = pkg && amount > 0 ? pkg.bonus / amount * 100 : 0
+    return quote
+  }
   const tier = matchRechargeBonusTier(tiers, amount)
   if (!tier || tier.bonus_percent <= 0) return quote
   quote.tier = tier

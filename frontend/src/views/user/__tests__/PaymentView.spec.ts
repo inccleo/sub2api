@@ -375,6 +375,41 @@ describe('PaymentView subscription plan grid', () => {
   })
 })
 
+describe('PaymentView fixed recharge packages', () => {
+  it.each([
+    [50, 0, 50], [100, 20, 120], [500, 150, 650], [1000, 400, 1400],
+  ])('shows and submits package %i with gift %i and credit %i', async (amount, gift, credit) => {
+    routeState.path = '/purchase'
+    routeState.query = {}
+    window.localStorage.clear()
+    createOrder.mockReset().mockResolvedValue({ ...jsapiOrderFixture('package-test'), result_type: 'order_created' })
+    getCheckoutInfo.mockResolvedValue(checkoutInfoFixture({
+      recharge_packages: [{ amount: 50, bonus: 0 }, { amount: 100, bonus: 20 }, { amount: 500, bonus: 150 }, { amount: 1000, bonus: 400 }],
+      recharge_bonus_tiers: [],
+    }))
+    const wrapper = shallowMount(PaymentView, { global: { stubs: {
+      AppLayout: { template: '<div><slot /></div>' }, AmountInput: false, Teleport: true, Transition: false,
+    } } })
+    await flushPromises()
+    const selector = wrapper.getComponent(AmountInput)
+    expect(selector.find('input').exists()).toBe(false)
+    expect(selector.findAll('button')).toHaveLength(4)
+    await selector.get(`[data-testid="quick-amount-${amount}"]`).trigger('click')
+    expect(translate).toHaveBeenCalledWith('payment.rechargeBonus.creditedShort', { amount: `$${credit.toFixed(2)}` })
+    if (gift > 0) expect(wrapper.text()).toContain(`$${credit.toFixed(2)}`)
+    if (gift > 0) {
+      expect(wrapper.text()).toContain(`+$${gift.toFixed(2)}`)
+      expect(translate).toHaveBeenCalledWith('payment.rechargeBonus.amountLabelWithPercent', { percent: String(gift / amount * 100) })
+    }
+    const submit = wrapper.findAll('button').find(button => button.classes().includes('w-full') && button.classes().includes('py-3'))!
+    expect(submit.attributes('disabled')).toBeUndefined()
+    await submit.trigger('click')
+    await flushPromises()
+    expect(createOrder).toHaveBeenCalledWith(expect.objectContaining({ amount, order_type: 'balance' }))
+    wrapper.unmount()
+  })
+})
+
 describe('PaymentView recharge rate preview', () => {
   it('uses the selected payment method currency in both locale templates', async () => {
     translate.mockClear()

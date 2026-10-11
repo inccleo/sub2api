@@ -118,6 +118,7 @@
               <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
               <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
               <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
+              <span v-if="navBadge(item)" class="sidebar-new-badge">{{ navBadge(item) }}</span>
             </router-link>
           </template>
         </div>
@@ -144,7 +145,7 @@
               <span v-if="item.iconSvg" class="block h-5 w-5 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
               <component v-else :is="item.icon" class="h-5 w-5" />
               <span
-                v-if="item.badge && sidebarCollapsed"
+                v-if="navBadge(item) && sidebarCollapsed"
                 class="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white dark:ring-dark-900"
               />
             </span>
@@ -154,7 +155,7 @@
               :aria-hidden="sidebarCollapsed ? 'true' : 'false'"
             >
               <span class="min-w-0 truncate">{{ item.label }}</span>
-              <span v-if="item.badge" class="sidebar-new-badge">{{ item.badge }}</span>
+              <span v-if="navBadge(item)" class="sidebar-new-badge">{{ navBadge(item) }}</span>
             </span>
           </router-link>
         </div>
@@ -177,7 +178,7 @@
               <span v-if="item.iconSvg" class="block h-5 w-5 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
               <component v-else :is="item.icon" class="h-5 w-5" />
               <span
-                v-if="item.badge && sidebarCollapsed"
+                v-if="navBadge(item) && sidebarCollapsed"
                 class="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white dark:ring-dark-900"
               />
             </span>
@@ -187,7 +188,7 @@
               :aria-hidden="sidebarCollapsed ? 'true' : 'false'"
             >
               <span class="min-w-0 truncate">{{ item.label }}</span>
-              <span v-if="item.badge" class="sidebar-new-badge">{{ item.badge }}</span>
+              <span v-if="navBadge(item)" class="sidebar-new-badge">{{ navBadge(item) }}</span>
             </span>
           </router-link>
         </div>
@@ -238,7 +239,7 @@
 import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore } from '@/stores'
+import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore, useSupportTicketStore } from '@/stores'
 import VersionBadge from '@/components/common/VersionBadge.vue'
 import FeatureSearch from './FeatureSearch.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -269,7 +270,7 @@ interface NavItem {
    */
   featureFlag?: () => boolean | undefined
   /** Optional small badge next to the label (e.g. "NEW" for newly launched features). */
-  badge?: string
+  badge?: string | (() => number)
 }
 
 // applyFeatureFlags 递归过滤掉 featureFlag() === false 的节点（含子节点）。
@@ -289,12 +290,18 @@ function applyFeatureFlags(items: NavItem[]): NavItem[] {
 
 const { t } = useI18n()
 
+function navBadge(item: NavItem): string {
+  const value = typeof item.badge === 'function' ? item.badge() : item.badge
+  return value == null || value === 0 ? '' : String(value)
+}
+
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 const onboardingStore = useOnboardingStore()
 const adminSettingsStore = useAdminSettingsStore()
+const supportTicketStore = useSupportTicketStore()
 const { canUseBatchImage, refreshBatchImageAccess } = useBatchImageAccess()
 
 const sidebarCollapsed = computed(() => appStore.sidebarCollapsed)
@@ -327,6 +334,8 @@ const AccountOpsIcon = { render: () => h(Icon, { name: 'userCog', size: 'sm' }) 
 const TokenGuardIcon = { render: () => h(Icon, { name: 'shieldKey', size: 'sm' }) }
 const CredentialOpsIcon = { render: () => h(Icon, { name: 'credentialOps', size: 'sm' }) }
 const PelicanTestsIcon = { render: () => h(Icon, { name: 'beaker', size: 'sm' }) }
+const SupportTicketIcon = { render: () => h(Icon, { name: 'chat' }) }
+const SupportTicketInboxIcon = { render: () => h(Icon, { name: 'inbox' }) }
 
 const DashboardIcon = {
   render: () =>
@@ -775,6 +784,8 @@ const purchaseNavLabel = computed(() => {
 const flagAffiliate = makeSidebarFlag(FeatureFlags.affiliate)
 const flagRiskControl = makeSidebarFlag(FeatureFlags.riskControl)
 const flagPluginManagement = makeSidebarFlag(FeatureFlags.pluginManagement)
+const flagSupportTickets = makeSidebarFlag(FeatureFlags.supportTickets)
+const flagUserSupportTickets = () => flagSupportTickets() && !authStore.isAdmin
 const flagOpsMonitoring = () => adminSettingsStore.opsMonitoringEnabled
 const flagAdminPayment = () => adminSettingsStore.paymentEnabled
 const flagBatchImageAccess = () => canUseBatchImage.value
@@ -819,6 +830,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     { path: '/orders', label: t('nav.myOrders'), icon: OrderListIcon, hideInSimpleMode: true, featureFlag: flagPayment },
     { path: '/redeem', label: t('nav.redeem'), icon: GiftIcon, hideInSimpleMode: true },
     { path: '/affiliate', label: t('nav.affiliate'), icon: UsersIcon, hideInSimpleMode: true, featureFlag: flagAffiliate },
+    { path: '/support-tickets', label: t('nav.supportTickets'), icon: SupportTicketIcon, featureFlag: flagUserSupportTickets, badge: () => supportTicketStore.userUnread },
     ...otherCustomMenuItems,
   )
   return items
@@ -886,6 +898,7 @@ const adminNavItems = computed((): NavItem[] => {
     ] },
     { path: '/admin/plugins', label: t('nav.plugins'), icon: PluginIcon, featureFlag: flagPluginManagement },
     { path: '/admin/announcements', label: t('nav.announcements'), icon: BellIcon },
+    { path: '/admin/support-tickets', label: t('nav.supportTickets'), icon: SupportTicketInboxIcon, featureFlag: flagSupportTickets, badge: () => supportTicketStore.adminPending },
     { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon },
     {
       path: '/admin/security-audit',

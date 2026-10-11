@@ -118,7 +118,7 @@
               <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
               <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
               <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
-              <span v-if="navBadge(item)" class="sidebar-new-badge">{{ navBadge(item) }}</span>
+              <span v-if="navBadge(item)" class="sidebar-new-badge sidebar-nav-badge" :class="{ 'sidebar-nav-badge-collapsed': sidebarCollapsed }" data-testid="sidebar-nav-badge">{{ navBadge(item) }}</span>
             </router-link>
           </template>
         </div>
@@ -155,7 +155,7 @@
               :aria-hidden="sidebarCollapsed ? 'true' : 'false'"
             >
               <span class="min-w-0 truncate">{{ item.label }}</span>
-              <span v-if="navBadge(item)" class="sidebar-new-badge">{{ navBadge(item) }}</span>
+              <span v-if="navBadge(item)" class="sidebar-new-badge sidebar-nav-badge" :class="{ 'sidebar-nav-badge-collapsed': sidebarCollapsed }" data-testid="sidebar-nav-badge">{{ navBadge(item) }}</span>
             </span>
           </router-link>
         </div>
@@ -188,7 +188,7 @@
               :aria-hidden="sidebarCollapsed ? 'true' : 'false'"
             >
               <span class="min-w-0 truncate">{{ item.label }}</span>
-              <span v-if="navBadge(item)" class="sidebar-new-badge">{{ navBadge(item) }}</span>
+              <span v-if="navBadge(item)" class="sidebar-new-badge sidebar-nav-badge" :class="{ 'sidebar-nav-badge-collapsed': sidebarCollapsed }" data-testid="sidebar-nav-badge">{{ navBadge(item) }}</span>
             </span>
           </router-link>
         </div>
@@ -292,7 +292,9 @@ const { t } = useI18n()
 
 function navBadge(item: NavItem): string {
   const value = typeof item.badge === 'function' ? item.badge() : item.badge
-  return value == null || value === 0 ? '' : String(value)
+  if (typeof value !== 'number') return value || ''
+  const count = Math.max(0, value)
+  return count > 99 ? '99+' : String(count)
 }
 
 const route = useRoute()
@@ -889,6 +891,7 @@ const adminNavItems = computed((): NavItem[] => {
       { path: '/admin/auto-config', label: t('autoConfig.title'), icon: AccountOpsIcon },
       { path: '/admin/priority-scheduling', label: t('priorityScheduling.title'), icon: AccountOpsIcon },
       { path: '/admin/account-quality', label: t('qualityOps.title'), icon: QualityOpsIcon },
+      { path: '/admin/controlled-experiments', label: t('controlledExperiments.title'), icon: QualityOpsIcon },
       { path: '/admin/account-ops', label: t('accountOps.title'), icon: AccountOpsIcon },
       { path: '/admin/token-guard', label: t('tokenGuard.title'), icon: TokenGuardIcon },
       { path: '/admin/token-guard-v2', label: t('tokenGuardV2.title'), icon: CredentialOpsIcon },
@@ -1224,6 +1227,23 @@ onBeforeUnmount(() => {
   line-height: 1.2;
   letter-spacing: 0.04em;
   color: #fff;
+}
+
+.sidebar-nav-badge-collapsed {
+  position: absolute;
+  right: -0.125rem;
+  top: -0.125rem;
+  height: 0.5rem;
+  width: 0.5rem;
+  overflow: hidden;
+  padding: 0;
+  border: 2px solid white;
+  border-radius: 9999px;
+  color: transparent;
+}
+
+.dark .sidebar-nav-badge-collapsed {
+  border-color: rgb(17 24 39);
 }
 
 /* Custom SVG icon in sidebar: constrain size without overriding uploaded SVG colors */

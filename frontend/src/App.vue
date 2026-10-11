@@ -26,7 +26,7 @@ const adminSettingsStore = useAdminSettingsStore()
 watch(
   () => appStore.siteLogo,
   (newLogo) => {
-    if (newLogo) updateFavicon(newLogo)
+    if (newLogo) updateFavicon()
   },
   { immediate: true }
 )

@@ -1,5 +1,34 @@
 # Maintaining this fork
 
+## Owner requirement: preserve customizations (2026-10-11)
+
+Every upgrade must preserve existing TopAPI features, configuration, and styling.
+An upgrade request does **not** authorize replacing or removing customizations.
+If a customization cannot be preserved, prepare the concrete before/after changes
+and their impact, then ask the owner for explicit approval before merging or
+deploying that replacement. Continue independent upgrade work while awaiting the
+decision; do not treat silence or earlier upgrade approval as consent.
+
+Use the current custom release as the comparison baseline. Review upstream changes
+against the fork, even when Git reports no conflicts. Do not take entire upstream
+files over customized versions, or delete/relax regression tests to bypass failures.
+Keep `AGENTS.md` and these requirements in every future integration branch.
+
+Protected recharge behavior and presentation include:
+
+- The 50 / 100 / 500 / 1000 package cards, their large card layout, names,
+  descriptions, recommendation labels, gifts, and credited totals.
+- The enterprise cooperation card, “联系商务” button, and QR-code dialog.
+- The existing `PAYMENT_ENTERPRISE_QR_CODE_URL` and contact configuration;
+  upgrades must not reset them or substitute a different QR code.
+- The fixed gifts and explicit-tier precedence documented below.
+
+Before release, run the existing recharge regression checks and compare the page
+against the baseline, including the contact dialog and loaded QR image. Record
+the result in the upgrade PR. A passing build or `/health` check is insufficient.
+If anything else in the custom diff is unclear, preserve it pending investigation
+or explicit approval; this list does not authorize removal of other customizations.
+
 This repository tracks [`Wei-Shaw/sub2api`](https://github.com/Wei-Shaw/sub2api) while carrying local TopAPI changes.
 
 ## Branches

@@ -7,8 +7,9 @@ import AdminComplianceDialog from '@/components/admin/AdminComplianceDialog.vue'
 import { resolveRouteDocumentTitle } from '@/router/title'
 import AnnouncementPopup from '@/components/common/AnnouncementPopup.vue'
 import SupportWidget from '@/components/common/SupportWidget.vue'
-import { useAppStore, useAuthStore, useSubscriptionStore, useAnnouncementStore, useAdminComplianceStore, useAdminSettingsStore } from '@/stores'
+import { useAppStore, useAuthStore, useSubscriptionStore, useAnnouncementStore, useAdminComplianceStore, useAdminSettingsStore, useSupportTicketStore } from '@/stores'
 import { getSetupStatus } from '@/api/setup'
+import { updateFavicon } from '@/utils/branding'
 import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
 
@@ -19,7 +20,16 @@ const authStore = useAuthStore()
 const subscriptionStore = useSubscriptionStore()
 const announcementStore = useAnnouncementStore()
 const adminComplianceStore = useAdminComplianceStore()
+const supportTicketStore = useSupportTicketStore()
 const adminSettingsStore = useAdminSettingsStore()
+
+watch(
+  () => appStore.siteLogo,
+  (newLogo) => {
+    if (newLogo) updateFavicon()
+  },
+  { immediate: true }
+)
 
 function updateDocumentTitle() {
   const customMenuItems = [
@@ -51,8 +61,16 @@ watch(
 function onVisibilityChange() {
   if (document.visibilityState === 'visible' && authStore.isAuthenticated) {
     announcementStore.fetchAnnouncements()
+    supportTicketStore.refresh()
   }
 }
+
+watch(
+  () => appStore.cachedPublicSettings?.support_ticket_enabled,
+  (enabled) => {
+    if (enabled && authStore.isAuthenticated) supportTicketStore.refresh(true)
+  }
+)
 
 function onAdminComplianceRequired(event: Event) {
   const detail = (event as CustomEvent<Record<string, string>>).detail || {}
@@ -103,6 +121,8 @@ watch(
         announcementStore.fetchAnnouncements()
       }
 
+      supportTicketStore.refresh(true)
+
       // Register visibility change listener
       document.addEventListener('visibilitychange', onVisibilityChange)
     } else {
@@ -110,6 +130,7 @@ watch(
       subscriptionStore.clear()
       announcementStore.reset()
       adminComplianceStore.reset()
+      supportTicketStore.reset()
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   },
@@ -120,6 +141,7 @@ watch(
 router.afterEach(() => {
   if (authStore.isAuthenticated) {
     announcementStore.fetchAnnouncements()
+    supportTicketStore.refresh()
   }
 })
 

@@ -1,8 +1,14 @@
 .PHONY: build build-backend build-frontend test test-backend test-frontend test-frontend-critical
 
 FRONTEND_CRITICAL_VITEST := \
+	src/components/account/__tests__/OpenAIRequestTimezoneField.spec.ts \
 	src/components/payment/__tests__/AmountInput.spec.ts \
 	src/utils/__tests__/rechargeBonus.spec.ts \
+	src/features/support-tickets/__tests__/supportTickets.spec.ts \
+	src/features/support-tickets/__tests__/TicketComponents.spec.ts \
+	src/views/user/__tests__/SupportTicketsViews.spec.ts \
+	src/views/admin/__tests__/SupportTicketsAdmin.spec.ts \
+	src/stores/__tests__/supportTickets.spec.ts \
 	src/components/admin/__tests__/HarvestGatewayBorrowPanel.spec.ts \
 	src/components/admin/__tests__/AstraGatewayRuntime.spec.ts \
 	src/components/admin/__tests__/AstraGatewayHistory.spec.ts \

@@ -219,6 +219,7 @@ const DingTalkConnectSyntheticEmailDomain = "@dingtalk-connect.invalid"
 const (
 	// 注册设置
 	SettingKeyRegistrationEnabled              = "registration_enabled"                // 是否开放注册
+	SettingKeyLoginRateLimitEnabled            = "login_rate_limit_enabled"            // 登录频率限制与失败 IP 封禁（默认开启）
 	SettingKeyEmailVerifyEnabled               = "email_verify_enabled"                // 是否开启邮件验证
 	SettingKeyRegistrationEmailSuffixWhitelist = "registration_email_suffix_whitelist" // 注册邮箱后缀白名单（JSON 数组）
 	// 白名单非空时，是否放行非白名单域名按主域名限量注册（每域名 1 个账户）。
@@ -739,6 +740,7 @@ const (
 	// SettingKeyOpenAICodexVersionAutoSyncEnabled 是否启用 Codex 客户端版本号自动同步（默认 true）。
 	SettingKeyOpenAICodexVersionAutoSyncEnabled = "openai_codex_version_auto_sync_enabled"
 	SettingKeyOpenAIRequestTimezoneEnabled      = "openai_request_timezone_enabled"
+	SettingKeyOpenAIRequestTimezoneAuto         = "openai_request_timezone_auto"
 	// SettingKeyOpenAICodexTicketEnabled Codex 292 打票总开关（后台可改、热更新）。
 	// 关闭：不打票、不注入 x-codex-turn-state，按原链路转发。
 	// 开启：后台打票并在业务请求中覆盖该头。
@@ -816,3 +818,9 @@ const SettingKeyAllowUserViewErrorRequests = "allow_user_view_error_requests"
 // billing "x2" badge is shown next to the cost in usage tables. Default
 // true (opt-out).
 const SettingKeyUsageShowLongContextBadge = "usage_show_long_context_badge"
+
+// SettingKeyUsageShowCacheRate controls the per-request cache-rate row in
+// usage records. Default true. SettingKeyUsageShowCacheRateToUsers controls
+// whether end users see that row; default false (admin only).
+const SettingKeyUsageShowCacheRate = "usage_show_cache_rate"
+const SettingKeyUsageShowCacheRateToUsers = "usage_show_cache_rate_to_users"

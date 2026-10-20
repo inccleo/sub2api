@@ -35,6 +35,7 @@ type UpdateSettingsRequest struct {
 	PrismBrowserAPIKey                string                           `json:"prism_browser_api_key"`
 	// 注册设置
 	RegistrationEnabled                 bool                         `json:"registration_enabled"`
+	LoginRateLimitEnabled               *bool                        `json:"login_rate_limit_enabled"` // 省略=保持现值
 	EmailVerifyEnabled                  bool                         `json:"email_verify_enabled"`
 	RegistrationEmailSuffixWhitelist    []string                     `json:"registration_email_suffix_whitelist"`
 	RegistrationEmailDomainQuotaEnabled *bool                        `json:"registration_email_domain_quota_enabled"` // 非白名单域名限量注册开关（省略=保持现值）
@@ -272,6 +273,7 @@ type UpdateSettingsRequest struct {
 	OpenAICodexClientVersion               *string   `json:"openai_codex_client_version"`
 	OpenAICodexVersionAutoSyncEnabled      *bool     `json:"openai_codex_version_auto_sync_enabled"`
 	OpenAIRequestTimezoneEnabled           *bool     `json:"openai_request_timezone_enabled"`
+	OpenAIRequestTimezoneAuto              *bool     `json:"openai_request_timezone_auto"`
 	OpenAICodexTicketEnabled               *bool     `json:"openai_codex_ticket_enabled"`
 	OpenAICodexTicketHarvestProxyURL       string    `json:"openai_codex_ticket_harvest_proxy_url"`
 	OpenAICodexTicketUseSavedStaticProxy   bool      `json:"openai_codex_ticket_use_saved_static_proxy"`
@@ -422,6 +424,8 @@ type UpdateSettingsRequest struct {
 
 	AllowUserViewErrorRequests    *bool   `json:"allow_user_view_error_requests"`
 	UsageShowLongContextBadge     *bool   `json:"usage_show_long_context_badge"`
+	UsageShowCacheRate            *bool   `json:"usage_show_cache_rate"`
+	UsageShowCacheRateToUsers     *bool   `json:"usage_show_cache_rate_to_users"`
 	RequestCaptureEnabled         *bool   `json:"request_capture_enabled"`
 	RequestCaptureQuotaMiB        *int64  `json:"request_capture_quota_mib"`
 	RequestCaptureRetentionDays   *int    `json:"request_capture_retention_days"`
@@ -635,7 +639,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		return
 	}
 
-	// 两个安全开关的请求字段为指针：省略字段=保持现值，避免旧客户端/脚本
+	// 安全开关的请求字段为指针：省略字段=保持现值，避免旧客户端/脚本
 	// 用不含新字段的全量 payload 保存设置时把安全开关静默重置。
 	sessionBindingEnabled := previousSettings.SessionBindingEnabled
 	if req.SessionBindingEnabled != nil {
@@ -644,6 +648,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	stepUpEnabled := previousSettings.StepUpEnabled
 	if req.StepUpEnabled != nil {
 		stepUpEnabled = *req.StepUpEnabled
+	}
+	loginRateLimitEnabled := previousSettings.LoginRateLimitEnabled
+	if req.LoginRateLimitEnabled != nil {
+		loginRateLimitEnabled = *req.LoginRateLimitEnabled
 	}
 	passkeyEnabled := previousSettings.PasskeyEnabled
 	if req.PasskeyEnabled != nil {
@@ -1667,6 +1675,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		AccountSchedulingThresholds: req.AccountSchedulingThresholds,
 
 		RegistrationEnabled:                 req.RegistrationEnabled,
+		LoginRateLimitEnabled:               loginRateLimitEnabled,
 		PrismBrowserEnabled:                 req.PrismBrowserEnabled,
 		PrismBrowserBaseURL:                 req.PrismBrowserBaseURL,
 		PrismBrowserAPIKey:                  req.PrismBrowserAPIKey,
@@ -1941,6 +1950,18 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.UsageShowLongContextBadge
 		}(),
+		UsageShowCacheRate: func() bool {
+			if req.UsageShowCacheRate != nil {
+				return *req.UsageShowCacheRate
+			}
+			return previousSettings.UsageShowCacheRate
+		}(),
+		UsageShowCacheRateToUsers: func() bool {
+			if req.UsageShowCacheRateToUsers != nil {
+				return *req.UsageShowCacheRateToUsers
+			}
+			return previousSettings.UsageShowCacheRateToUsers
+		}(),
 		OpsMonitoringEnabled: func() bool {
 			if req.OpsMonitoringEnabled != nil {
 				return *req.OpsMonitoringEnabled
@@ -2056,6 +2077,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.OpenAIRequestTimezoneEnabled
 			}
 			return previousSettings.OpenAIRequestTimezoneEnabled
+		}(),
+		OpenAIRequestTimezoneAuto: func() bool {
+			if req.OpenAIRequestTimezoneAuto != nil {
+				return *req.OpenAIRequestTimezoneAuto
+			}
+			return previousSettings.OpenAIRequestTimezoneAuto
 		}(),
 		OpenAICodexTicketEnabled: func() bool {
 			if req.OpenAICodexTicketEnabled != nil {
@@ -2559,6 +2586,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 
 	payload := dto.SystemSettings{
 		RegistrationEnabled:                                    updatedSettings.RegistrationEnabled,
+		LoginRateLimitEnabled:                                  updatedSettings.LoginRateLimitEnabled,
 		PrismBrowserEnabled:                                    updatedSettings.PrismBrowserEnabled,
 		PrismBrowserBaseURL:                                    updatedSettings.PrismBrowserBaseURL,
 		PrismBrowserAPIKeyConfigured:                           updatedSettings.PrismBrowserAPIKeyConfigured,
@@ -2731,6 +2759,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAICodexClientVersionSynced:                         updatedSettings.OpenAICodexClientVersionSynced,
 		OpenAICodexVersionAutoSyncEnabled:                      updatedSettings.OpenAICodexVersionAutoSyncEnabled,
 		OpenAIRequestTimezoneEnabled:                           updatedSettings.OpenAIRequestTimezoneEnabled,
+		OpenAIRequestTimezoneAuto:                              updatedSettings.OpenAIRequestTimezoneAuto,
 		OpenAICodexTicketEnabled:                               updatedSettings.OpenAICodexTicketEnabled,
 		OpenAICodexTicketHarvestProxyURL:                       service.MaskProxyURL(updatedSettings.OpenAICodexTicketHarvestProxyURL),
 		OpenAICodexTicketStaticProxyURL:                        service.MaskProxyURL(updatedSettings.OpenAICodexTicketStaticProxyURL),
@@ -2850,6 +2879,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		AccountSchedulingThresholds:       updatedSettings.AccountSchedulingThresholds,
 		AllowUserViewErrorRequests:        updatedSettings.AllowUserViewErrorRequests,
 		UsageShowLongContextBadge:         updatedSettings.UsageShowLongContextBadge,
+		UsageShowCacheRate:                updatedSettings.UsageShowCacheRate,
+		UsageShowCacheRateToUsers:         updatedSettings.UsageShowCacheRateToUsers,
 		RequestCaptureEnabled:             updatedSettings.RequestCaptureEnabled,
 		RequestCaptureQuotaMiB:            updatedSettings.RequestCaptureQuotaMiB,
 		RequestCaptureRetentionDays:       updatedSettings.RequestCaptureRetentionDays,

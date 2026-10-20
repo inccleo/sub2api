@@ -165,6 +165,7 @@ type AccountTestService struct {
 	bpsProbeMu                sync.Mutex
 	bpsProbeAccounts          map[int64]struct{}
 	stateProbeAccounts        sync.Map
+	modelTraceAccounts        sync.Map
 	agentIdentityTaskMu       sync.Mutex
 	agentIdentityWS           agentIdentityWSConnectionInvalidator
 	// grokWSDialer is optional; realtime account tests use the default OpenAI-style
@@ -393,6 +394,12 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.sendErrorAndEnd(c, "Account not found")
 	}
 	bindAccountTestPlatform(c, account)
+	if expected, ok := ctx.Value(modelTraceContextKey{}).(modelTraceEnvironment); ok {
+		actual, err := modelTraceEnvironmentForAccount(account, modelID)
+		if err != nil || actual != expected {
+			return s.sendErrorAndEnd(c, "ModelTrace account route is unsupported or changed during the test")
+		}
+	}
 	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
 		if options.testChannel == "bps" {
 			model := strings.TrimSpace(modelID)
@@ -647,7 +654,11 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
 	}
+	applyModelTracePayload(ctx, payload)
 	payloadBytes, _ := json.Marshal(payload)
+	if account.IsAnthropicStripClaudeCodeIdentityEnabled() {
+		payloadBytes = stripAnthropicClaudeCodeIdentityFromBody(payloadBytes)
+	}
 
 	// Send test_start event
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
@@ -675,6 +686,10 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 		// Ollama Cloud Anthropic 兼容端点按实际 base_url 强制 Bearer，
 		// 其余保持 extra/default 行为。
 		setAnthropicAPIKeyAuthHeader(req.Header, account, authToken, account.GetBaseURL())
+	}
+
+	if account.IsAnthropicStripClaudeCodeIdentityEnabled() {
+		stripAnthropicClaudeCodeIdentityFromHeaders(req.Header)
 	}
 
 	// 账号级请求头覆写：测试请求与真实转发保持一致的最终头
@@ -1008,6 +1023,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
 		payload = createPelicanOpenAIPayload(upstreamTestModelID, isOAuth, options.prompt, options.reasoningEffort)
 	}
+	applyModelTracePayload(ctx, payload)
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event once. A task-invalid Agent Identity response may
@@ -2382,6 +2398,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	if options, ok := pelicanTestOptionsFromContext(ctx); ok && options.reasoningEffort != "" {
 		payload["reasoning_effort"] = options.reasoningEffort
 	}
+	applyModelTracePayload(ctx, payload)
 	payloadBytes, _ := json.Marshal(payload)
 
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
@@ -2723,12 +2740,12 @@ func (s *AccountTestService) routeAntigravityTest(c *gin.Context, account *Accou
 		}
 		return s.testClaudeAccountConnection(c, account, modelID)
 	}
-	return s.testAntigravityAccountConnection(c, account, modelID)
+	return s.testAntigravityAccountConnection(c, account, modelID, prompt)
 }
 
 // testAntigravityAccountConnection tests an Antigravity account's connection
 // 支持 Claude 和 Gemini 两种协议，使用非流式请求
-func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, account *Account, modelID string) error {
+func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
 	ctx := c.Request.Context()
 
 	testModelID := antigravityConnectionTestModel(modelID)
@@ -2747,8 +2764,8 @@ func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, ac
 	// Send test_start event
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
 
-	// 调用 AntigravityGatewayService.TestConnection（复用协议转换逻辑）
-	result, err := s.antigravityGatewayService.TestConnection(ctx, account, testModelID)
+	// 调用 AntigravityGatewayService.TestConnectionWithPrompt（复用协议转换逻辑）
+	result, err := s.antigravityGatewayService.TestConnectionWithPrompt(ctx, account, testModelID, prompt)
 	if err != nil {
 		return s.sendErrorAndEnd(c, err.Error())
 	}
@@ -2756,6 +2773,13 @@ func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, ac
 	// 发送响应内容
 	if result.Text != "" {
 		s.sendEvent(c, TestEvent{Type: "content", Text: result.Text})
+	}
+	for _, img := range result.Images {
+		s.sendEvent(c, TestEvent{
+			Type:     "image",
+			ImageURL: img.ImageURL,
+			MimeType: img.MimeType,
+		})
 	}
 
 	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
@@ -2844,14 +2868,7 @@ func (s *AccountTestService) buildGeminiOAuthRequest(ctx context.Context, accoun
 }
 
 func (s *AccountTestService) buildGeminiServiceAccountRequest(ctx context.Context, account *Account, modelID string, payload []byte) (*http.Request, error) {
-	if s.geminiTokenProvider == nil {
-		return nil, fmt.Errorf("gemini token provider not configured")
-	}
-	accessToken, err := s.geminiTokenProvider.GetAccessToken(ctx, account)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get service account access token: %w", err)
-	}
-	fullURL, err := buildVertexGeminiURL(account.VertexProjectID(), account.VertexLocation(modelID), modelID, "streamGenerateContent", true)
+	fullURL, err := buildVertexGeminiAccountURL(account, modelID, "streamGenerateContent", true)
 	if err != nil {
 		return nil, err
 	}
@@ -2860,7 +2877,9 @@ func (s *AccountTestService) buildGeminiServiceAccountRequest(ctx context.Contex
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+accessToken)
+	if err := setVertexGeminiAuth(ctx, req, account, s.geminiTokenProvider); err != nil {
+		return nil, fmt.Errorf("failed to authenticate vertex request: %w", err)
+	}
 	return req, nil
 }
 
@@ -3087,7 +3106,11 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 	// that stopped early is reported with the reason instead of as a success.
 	pelican := pelicanTestRequested(c)
 	stopReason, refusalCategory := "", ""
+	messageStopped := false
 	complete := func() error {
+		if modelTraceRequested(c.Request.Context()) && (!messageStopped || stopReason != "end_turn") {
+			return s.sendErrorAndEnd(c, "ModelTrace generation did not finish normally")
+		}
 		if pelican {
 			if failure := pelicanClaudeStopFailure(stopReason, refusalCategory); failure != "" {
 				return s.sendErrorAndEnd(c, failure)
@@ -3141,6 +3164,7 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 				}
 			}
 		case "message_stop":
+			messageStopped = true
 			return complete()
 		case "error":
 			errorMsg := "Unknown error"
@@ -3187,6 +3211,9 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 		jsonStr := sseDataPrefix.ReplaceAllString(line, "")
 		usage.read(jsonStr)
 		if jsonStr == "[DONE]" {
+			if modelTraceRequested(c.Request.Context()) && !seenFinish {
+				return s.sendErrorAndEnd(c, "ModelTrace generation ended without a finish reason")
+			}
 			s.sendEvent(c, TestEvent{Type: "status", Text: "已通过 /v1/chat/completions 验证"})
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
@@ -3226,6 +3253,9 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 				}
 			}
 			if finishReason, ok := choice["finish_reason"].(string); ok && finishReason != "" {
+				if modelTraceRequested(c.Request.Context()) && finishReason != "stop" {
+					return s.sendErrorAndEnd(c, "ModelTrace generation did not finish normally")
+				}
 				seenFinish = true
 			}
 		}
@@ -3280,6 +3310,13 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 				s.sendEvent(c, TestEvent{Type: "content", Text: delta})
 			}
 		case "response.completed", "response.done":
+			if modelTraceRequested(c.Request.Context()) {
+				if responseData, ok := data["response"].(map[string]any); ok {
+					if status, _ := responseData["status"].(string); status != "" && status != "completed" {
+						return s.sendErrorAndEnd(c, "ModelTrace generation did not finish normally")
+					}
+				}
+			}
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
 		case "response.failed":

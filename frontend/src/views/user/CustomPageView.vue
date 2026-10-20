@@ -116,6 +116,7 @@
           </a>
           <iframe
             :src="embeddedUrl"
+            referrerpolicy="no-referrer"
             class="custom-embed-frame"
             allowfullscreen
           ></iframe>
@@ -136,7 +137,7 @@ import { useAdminSettingsStore } from '@/stores/adminSettings'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { buildApiUrl } from '@/api/client'
-import { buildEmbeddedUrl, detectTheme, isChatGPTMenuItem } from '@/utils/embedded-url'
+import { buildEmbeddedUrl, detectTheme, isChatGPTMenuItem, stripLegacyEmbeddedToken } from '@/utils/embedded-url'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 
@@ -248,11 +249,10 @@ const isChatGPTMenu = computed(() =>
 
 const embeddedUrl = computed(() => {
   if (!menuItem.value || isMarkdownMode.value) return ''
-  if (isChatGPTMenu.value) return menuItem.value.url
+  if (isChatGPTMenu.value) return stripLegacyEmbeddedToken(menuItem.value.url)
   return buildEmbeddedUrl(
     menuItem.value.url,
     authStore.user?.id,
-    authStore.token,
     pageTheme.value,
     locale.value,
   )

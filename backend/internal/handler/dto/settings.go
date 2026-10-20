@@ -34,6 +34,7 @@ type SystemSettings struct {
 	OpenAICodexTicketFailClosed         bool                            `json:"openai_codex_ticket_fail_closed"`
 	OpenAICodexTicketStrategy           string                          `json:"openai_codex_ticket_strategy"`
 	RegistrationEnabled                 bool                            `json:"registration_enabled"`
+	LoginRateLimitEnabled               bool                            `json:"login_rate_limit_enabled"`
 	PrismBrowserEnabled                 bool                            `json:"prism_browser_enabled"`
 	PrismBrowserBaseURL                 string                          `json:"prism_browser_base_url"`
 	PrismBrowserAPIKeyConfigured        bool                            `json:"prism_browser_api_key_configured"`
@@ -229,6 +230,7 @@ type SystemSettings struct {
 	OpenAICodexClientVersionSynced          string   `json:"openai_codex_client_version_synced"`
 	OpenAICodexVersionAutoSyncEnabled       bool     `json:"openai_codex_version_auto_sync_enabled"`
 	OpenAIRequestTimezoneEnabled            bool     `json:"openai_request_timezone_enabled"`
+	OpenAIRequestTimezoneAuto               bool     `json:"openai_request_timezone_auto"`
 	OpenAICodexTicketEnabled                bool     `json:"openai_codex_ticket_enabled"`
 	OpenAICodexTicketHarvestProxyURL        string   `json:"openai_codex_ticket_harvest_proxy_url"`
 	OpenAICodexTicketStaticProxyURL         string   `json:"openai_codex_ticket_static_proxy_url,omitempty"`
@@ -387,6 +389,8 @@ type SystemSettings struct {
 	// 允许终端用户在用量页查看自己的失败请求
 	AllowUserViewErrorRequests    bool   `json:"allow_user_view_error_requests"`
 	UsageShowLongContextBadge     bool   `json:"usage_show_long_context_badge"`
+	UsageShowCacheRate            bool   `json:"usage_show_cache_rate"`
+	UsageShowCacheRateToUsers     bool   `json:"usage_show_cache_rate_to_users"`
 	RequestCaptureEnabled         bool   `json:"request_capture_enabled"`
 	RequestCaptureQuotaMiB        int64  `json:"request_capture_quota_mib"`
 	RequestCaptureRetentionDays   int    `json:"request_capture_retention_days"`
@@ -507,6 +511,8 @@ type PublicSettings struct {
 	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
 
 	UsageShowLongContextBadge bool `json:"usage_show_long_context_badge"`
+	UsageShowCacheRate        bool `json:"usage_show_cache_rate"`
+	UsageShowCacheRateToUsers bool `json:"usage_show_cache_rate_to_users"`
 }
 
 type LoginAgreementDocument struct {

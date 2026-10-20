@@ -383,6 +383,7 @@ const ImageUploadStub = defineComponent({
 
 const baseSettingsResponse = {
   registration_enabled: true,
+  login_rate_limit_enabled: true,
   email_verify_enabled: false,
   registration_email_suffix_whitelist: [],
   promo_code_enabled: true,
@@ -1131,6 +1132,18 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(updateSettings.mock.calls[0]?.[0].openai_request_timezone_enabled).toBe(!enabled);
   });
 
+  it.each([false, true])("loads and saves timezone source from %s", async (auto) => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, openai_request_timezone_enabled: true, openai_request_timezone_auto: auto });
+    const wrapper = mountView();
+    await flushPromises();
+    expect(wrapper.get<HTMLSelectElement>('#request-timezone-mode').element.value).toBe(auto ? 'auto' : 'manual');
+    await wrapper.get('#request-timezone-mode').setValue(auto ? 'manual' : 'auto');
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0].openai_request_timezone_auto).toBe(!auto);
+    wrapper.unmount();
+  });
+
   it("keeps harvest policy and exit settings in their dedicated pages", async () => {
     getSettings.mockResolvedValueOnce({ ...baseSettingsResponse,
       openai_codex_ticket_enabled: true,
@@ -1234,6 +1247,32 @@ describe("admin SettingsView payment visible method controls", () => {
 
     expect(wrapper.text()).not.toContain("可见方式");
     expect(wrapper.text()).not.toContain("支付来源");
+  });
+
+  it("loads and saves the login rate limit switch in security settings", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      login_rate_limit_enabled: false,
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openSecurityTab(wrapper);
+
+    const toggle = wrapper.get('[data-testid="login-rate-limit-toggle"]');
+    expect((toggle.element as HTMLInputElement).checked).toBe(false);
+    await toggle.setValue(true);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ login_rate_limit_enabled: true }),
+    );
+
+    await toggle.setValue(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({ login_rate_limit_enabled: false }),
+    );
   });
 
   it("shows valid passkey RP configuration and persists the sign-in toggle", async () => {

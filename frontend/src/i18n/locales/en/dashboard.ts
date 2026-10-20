@@ -134,6 +134,9 @@ export default {
     nameLabel: 'Name',
     namePlaceholder: 'My API Key',
     groupLabel: 'Group',
+    additionalGroups: 'Use additional groups',
+    multiGroupHint: 'Each request selects an available group with a lower effective multiplier and is billed by the selected group. Select up to 20 groups.',
+    multiGroupCount: 'Auto · {count} groups',
     providerLabel: 'Provider',
     providers: {
       anthropic: 'Anthropic',
@@ -436,6 +439,8 @@ export default {
     latencyDuration: 'Total',
     latencyTps: 'Avg TPS',
     latencyTpsHint: 'Average TPS = output tokens ÷ total duration (seconds). Includes waiting time and any reasoning tokens reported in output usage; not model generation speed.',
+    latencyCacheRate: 'Cache rate',
+    latencyCacheRateHint: 'Cache rate = cache read {read} ÷ (input {input} + cache read {read} + cache write {write}). Same definition as channel monitor and the usage trend.',
     time: 'Time',
     ws: 'WS',
     stream: 'Stream',

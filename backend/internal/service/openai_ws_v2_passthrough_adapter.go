@@ -716,6 +716,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	hooks *OpenAIWSIngressHooks,
 	wsDecision OpenAIWSProtocolDecision,
 ) error {
+	ctx = s.withRequestTimezoneEgress(ctx, account)
 	// The same request context survives scheduler failover attempts. Clear any
 	// reverse mapping installed by the prior account before processing frames.
 	setCodexToolNameReverse(c, nil)
@@ -784,6 +785,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			firstClientMessage = s.ReplaceModelInBody(firstClientMessage, mappedModel)
 		}
 	}
+	ctx = withOpenAITransportRoute(ctx, "websocket", "passthrough", wsDecision.Reason, "")
 	requestcapture.FromContext(ctx).BindAccount(account.ID)
 	capturedSessionModel := openAIWSPassthroughPolicyModelForFrame(account, firstClientMessage)
 	var activePolicyModel atomic.Pointer[string]
@@ -793,7 +795,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		firstClientMessage = s.ReplaceModelInBody(firstClientMessage, capturedSessionModel)
 	}
 	firstMessageResponsesLite := isOpenAIResponsesLiteWebSocketPayload(firstClientMessage)
-	if normalized, compatibilityChanged, normalizeErr := normalizeOpenAIResponsesWebSocketCompatibilityBody(firstClientMessage, account, firstMessageResponsesLite); normalizeErr != nil {
+	if normalized, compatibilityChanged, normalizeErr := normalizeOpenAIResponsesWebSocketCompatibilityBodyWithConfig(s.cfg, firstClientMessage, account, firstMessageResponsesLite); normalizeErr != nil {
 		return fmt.Errorf("normalize first websocket response.create: %w", normalizeErr)
 	} else if compatibilityChanged {
 		firstClientMessage = normalized
@@ -916,7 +918,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	statusCode := 0
 	var handshakeHeaders http.Header
 	for {
-		latest, admissionErr := s.admitOpenAITurn(ctx, c, account, gjson.GetBytes(firstClientMessage, "model").String())
+		latest, admissionErr := s.admitOpenAITurn(ctx, c, account, gjson.GetBytes(firstClientMessage, "model").String(), firstClientMessage)
 		if admissionErr != nil {
 			return admissionErr
 		}
@@ -928,7 +930,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			return fmt.Errorf("refresh ws authentication headers: %w", err)
 		}
 		dialCtx, cancelDial := context.WithTimeout(upstreamroute.WithAccountID(ctx, account.ID), s.openAIWSDialTimeout())
+		finishCapture := captureOpenAIWSHandshake(ctx, account.ID, wsURL)
 		upstreamConn, statusCode, handshakeHeaders, err = dialer.Dial(dialCtx, wsURL, headers, proxyURL)
+		finishCapture(statusCode, handshakeHeaders, err)
 		cancelDial()
 		if err == nil {
 			break
@@ -938,7 +942,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		if errors.As(err, &handshakeErr) && handshakeErr != nil {
 			responseBody = handshakeErr.Body
 		}
-		requestcapture.FromContext(ctx).SelectionFailed(account.ID, statusCode, handshakeHeaders, responseBody, err)
+		captureOpenAIWSHandshakeBody(ctx, responseBody, handshakeHeaders)
 		dialErr := &openAIWSDialError{StatusCode: statusCode, ResponseHeaders: cloneHeader(handshakeHeaders), ResponseBody: responseBody, Err: err}
 		if s.isAgentIdentityAccount(ctx, account) && isAgentIdentityTaskInvalidWSDialError(dialErr) && !agentTaskRecoveryTried {
 			agentTaskRecoveryTried = true
@@ -976,7 +980,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		return errors.New("openai ws passthrough upstream connection does not support frame relay")
 	}
 	if capture := requestcapture.FromContext(ctx); capture != nil {
-		upstreamFrameConn = &captureUpstreamFrameConn{FrameConn: upstreamFrameConn, capture: capture, account: account.ID}
+		upstreamFrameConn = &captureUpstreamFrameConn{FrameConn: upstreamFrameConn, capture: capture, account: account.ID, route: openAIWSCaptureRoute(ctx, wsURL)}
 	}
 	relayUpstreamFrameConn := &openAIWSPassthroughFirstOutputFrameConn{
 		inner:             upstreamFrameConn,
@@ -1058,6 +1062,18 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			responseCreateAt := time.Time{}
 			acceptedTurn := false
 			if isResponseCreate {
+				// Match native ingress: check the original employee frame before
+				// compatibility or account identity normalization changes metadata.
+				if hooks != nil && hooks.BeforePayloadParse != nil {
+					turn := max(2, int(completedTurns.Load())+1)
+					model := usageMeta.requestModelForFrame(payload)
+					if model == "" {
+						model = capturedSessionModel
+					}
+					if err := hooks.BeforePayloadParse(turn, payload, model); err != nil {
+						return payload, nil, err
+					}
+				}
 				responseCreateAt = time.Now()
 				if !turnLifecycle.beginResponseCreate(clientFrameConn.markTurnStarted) {
 					err := errors.New("overlapping response.create is not supported")
@@ -1076,7 +1092,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			}
 			responsesLite := isResponseCreate && isOpenAIResponsesLiteWebSocketPayload(payload)
 			if isResponseCreate {
-				if normalized, compatibilityChanged, normalizeErr := normalizeOpenAIResponsesWebSocketCompatibilityBody(payload, account, responsesLite); normalizeErr != nil {
+				if normalized, compatibilityChanged, normalizeErr := normalizeOpenAIResponsesWebSocketCompatibilityBodyWithConfig(s.cfg, payload, account, responsesLite); normalizeErr != nil {
 					return payload, nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", normalizeErr)
 				} else if compatibilityChanged {
 					payload = normalized
@@ -1199,7 +1215,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			// cancel/ping stay usable for the admitted in-flight turn. State
 			// mutations and new generations must not feed an ineligible socket.
 			if isResponseCreate || eventType == "session.update" || strings.HasPrefix(eventType, "conversation.item.") {
-				latest, err := s.admitOpenAITurn(ctx, c, account, model)
+				latest, err := s.admitOpenAITurn(ctx, c, account, model, payload)
 				if err == nil {
 					err = s.checkOpenAIWSBinding(latest, model, handshakeBinding)
 				}
@@ -1230,6 +1246,12 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			//     覆盖（Store(nil)），因为 OpenAI 上游对该帧实际不传
 			//     service_tier 时按 default 处理，billing 应如实反映。
 			if policyErr == nil && blocked == nil && isResponseCreate {
+				if err := regionalMeterValidatePayload(ctx, out); err != nil {
+					return out, nil, err
+				}
+				if err := regionalMeterBeforeSend(ctx); err != nil {
+					return out, nil, err
+				}
 				if err := s.acquireOpenAIRPMForSend(ctx, account); err != nil {
 					return out, nil, err
 				}
@@ -1263,7 +1285,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		},
 	}
 	upstreamFirstMessageSent := false
-	latest, admissionErr := s.admitOpenAITurn(ctx, c, account, gjson.GetBytes(firstClientMessage, "model").String())
+	latest, admissionErr := s.admitOpenAITurn(ctx, c, account, gjson.GetBytes(firstClientMessage, "model").String(), firstClientMessage)
 	if admissionErr == nil {
 		admissionErr = s.checkOpenAIWSBinding(latest, gjson.GetBytes(firstClientMessage, "model").String(), handshakeBinding)
 	}
@@ -1278,6 +1300,12 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		return admissionErr
 	}
 	if err := s.acquireOpenAIRPMForSend(ctx, latest); err != nil {
+		return err
+	}
+	if err := regionalMeterValidatePayload(ctx, firstClientMessage); err != nil {
+		return err
+	}
+	if err := regionalMeterBeforeSend(ctx); err != nil {
 		return err
 	}
 	firstWriteCtx, cancelFirstWrite := context.WithTimeout(ctx, s.openAIWSWriteTimeout())
@@ -1433,6 +1461,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 					return nil
 				}
 				eventType, _, _ := parseOpenAIWSEventEnvelope(payload)
+				regionalMeterObserveUsage(ctx, payload, eventType)
 				if eventType == "response.created" {
 					failureAccountSideEffectsApplied = false
 				}

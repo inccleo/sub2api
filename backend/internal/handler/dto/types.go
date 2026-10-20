@@ -59,6 +59,7 @@ type APIKey struct {
 	UserID      int64      `json:"user_id"`
 	Key         string     `json:"key"`
 	Name        string     `json:"name"`
+	GroupIDs    []int64    `json:"group_ids"`
 	GroupID     *int64     `json:"group_id"`
 	Status      string     `json:"status"`
 	IPWhitelist []string   `json:"ip_whitelist"`
@@ -100,6 +101,10 @@ type Group struct {
 	RateMultiplier float64 `json:"rate_multiplier"`
 	IsExclusive    bool    `json:"is_exclusive"`
 	Status         string  `json:"status"`
+
+	// I18n 名称与描述的各语言译文。只有管理端输出；用户侧接口经 Localized 把
+	// name/description 换成请求语言的版本后清空本字段。
+	I18n domain.GroupI18n `json:"i18n,omitempty"`
 
 	SubscriptionType          string   `json:"subscription_type"`
 	DailyLimitUSD             *float64 `json:"daily_limit_usd"`
@@ -173,7 +178,9 @@ type AdminGroup struct {
 	// FreeOpenAIFast 是管理端计费策略，用户侧分组 DTO 无需暴露。
 	FreeOpenAIFast bool `json:"free_openai_fast"`
 	// StreamOnly 是管理端请求策略（只接受流式的对话生成请求），用户侧分组 DTO 无需暴露。
-	StreamOnly bool `json:"stream_only"`
+	StreamOnly     bool `json:"stream_only"`
+	CodexCLIOnly   bool `json:"codex_cli_only"`
+	BlockSubagents bool `json:"block_subagents"`
 
 	// 分组利润控制（五个 token 平台分组可启用；margin/buffer 为小数存储）。
 	// 仅管理员可见：这三个字段与同响应中的 rate_multiplier 相乘即可反推出

@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 27 // v27: include API key concurrency limit; retain stream_only and user-group denied models
+const apiKeyAuthSnapshotVersion = 30 // v30: include configured API key groups
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -105,6 +105,9 @@ func (s *APIKeyService) initAuthCache(cfg *config.Config) {
 // StartAuthCacheInvalidationSubscriber starts the Pub/Sub subscriber for L1 cache invalidation.
 // This should be called after the service is fully initialized.
 func (s *APIKeyService) StartAuthCacheInvalidationSubscriber(ctx context.Context) {
+	if s.localAuth != nil {
+		return
+	}
 	if s.cache == nil || (s.authCacheL1 == nil && s.authNegativeCacheL1 == nil) {
 		return
 	}
@@ -184,6 +187,7 @@ func (s *APIKeyService) StopAuthCacheInvalidationSubscriber() {
 		return
 	}
 	s.authInvalidationStop.Do(func() {
+		s.regionalAuthRuntime.stop()
 		if s.authInvalidationCancel != nil {
 			s.authInvalidationCancel()
 		}
@@ -356,6 +360,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 		Version:          apiKeyAuthSnapshotVersion,
 		APIKeyID:         apiKey.ID,
 		UserID:           apiKey.UserID,
+		GroupIDs:         append([]int64(nil), apiKey.GroupIDs...),
 		GroupID:          apiKey.GroupID,
 		Name:             apiKey.Name,
 		Status:           apiKey.Status,
@@ -432,6 +437,8 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			FallbackGroupID:                 apiKey.Group.FallbackGroupID,
 			FallbackGroupIDOnInvalidRequest: apiKey.Group.FallbackGroupIDOnInvalidRequest,
 			StreamOnly:                      apiKey.Group.StreamOnly,
+			CodexCLIOnly:                    apiKey.Group.CodexCLIOnly,
+			BlockSubagents:                  apiKey.Group.BlockSubagents,
 			ModelRouting:                    apiKey.Group.ModelRouting,
 			ModelRoutingEnabled:             apiKey.Group.ModelRoutingEnabled,
 			MCPXMLInject:                    apiKey.Group.MCPXMLInject,
@@ -467,6 +474,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 	apiKey := &APIKey{
 		ID:               snapshot.APIKeyID,
 		UserID:           snapshot.UserID,
+		GroupIDs:         append([]int64(nil), snapshot.GroupIDs...),
 		GroupID:          snapshot.GroupID,
 		Key:              key,
 		Name:             snapshot.Name,
@@ -537,6 +545,8 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			FallbackGroupID:                 snapshot.Group.FallbackGroupID,
 			FallbackGroupIDOnInvalidRequest: snapshot.Group.FallbackGroupIDOnInvalidRequest,
 			StreamOnly:                      snapshot.Group.StreamOnly,
+			CodexCLIOnly:                    snapshot.Group.CodexCLIOnly,
+			BlockSubagents:                  snapshot.Group.BlockSubagents,
 			ModelRouting:                    snapshot.Group.ModelRouting,
 			ModelRoutingEnabled:             snapshot.Group.ModelRoutingEnabled,
 			MCPXMLInject:                    snapshot.Group.MCPXMLInject,

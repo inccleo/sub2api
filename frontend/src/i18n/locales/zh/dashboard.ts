@@ -134,6 +134,9 @@ export default {
     nameLabel: '名称',
     namePlaceholder: '我的 API 密钥',
     groupLabel: '分组',
+    additionalGroups: '同时使用其他分组',
+    multiGroupHint: '每次请求自动选择可用且倍率较低的分组，并按实际使用分组计费。最多选择 20 个分组。',
+    multiGroupCount: '自动分配 · {count} 个分组',
     providerLabel: '厂商',
     providers: {
       anthropic: 'Anthropic',
@@ -441,6 +444,8 @@ export default {
     latencyDuration: '总耗时',
     latencyTps: '平均 TPS',
     latencyTpsHint: '平均 TPS = 输出 Token ÷ 总耗时(秒). 包含等待时间及上游计入输出用量的推理 Token, 不代表模型实际生成速度.',
+    latencyCacheRate: '缓存率',
+    latencyCacheRateHint: '缓存率 = 缓存读取 {read} ÷ (输入 {input} + 缓存读取 {read} + 缓存写入 {write})。与渠道监控和用量趋势同一口径。',
     time: '时间',
     ws: 'WS',
     stream: '流式',

@@ -1,11 +1,9 @@
 /**
  * Shared URL builder for iframe-embedded pages.
- * Used by PurchaseSubscriptionView and CustomPageView to build consistent URLs
- * with user_id, token, theme, lang, ui_mode, src_host, and src parameters.
+ * Keeps presentation and source context without disclosing login credentials.
  */
 
 const EMBEDDED_USER_ID_QUERY_KEY = 'user_id'
-const EMBEDDED_AUTH_TOKEN_QUERY_KEY = 'token'
 const EMBEDDED_THEME_QUERY_KEY = 'theme'
 const EMBEDDED_LANG_QUERY_KEY = 'lang'
 const EMBEDDED_UI_MODE_QUERY_KEY = 'ui_mode'
@@ -19,10 +17,20 @@ export function isChatGPTMenuItem(item: { label?: string; url?: string }): boole
     /^https:\/\/chatgpt\.topopenai\.com(?:[/?#]|$)/i.test(item.url ?? '')
 }
 
+export function stripLegacyEmbeddedToken(baseUrl: string): string {
+  try {
+    const url = new URL(baseUrl)
+    if (!url.searchParams.has('token')) return baseUrl
+    url.searchParams.delete('token')
+    return url.toString()
+  } catch {
+    return baseUrl
+  }
+}
+
 export function buildEmbeddedUrl(
   baseUrl: string,
   userId?: number,
-  authToken?: string | null,
   theme: 'light' | 'dark' = 'light',
   lang?: string,
 ): string {
@@ -32,9 +40,9 @@ export function buildEmbeddedUrl(
     if (userId) {
       url.searchParams.set(EMBEDDED_USER_ID_QUERY_KEY, String(userId))
     }
-    if (authToken) {
-      url.searchParams.set(EMBEDDED_AUTH_TOKEN_QUERY_KEY, authToken)
-    }
+    // This key was previously reserved for the main application's bearer JWT.
+    // Remove stale copies as well as stopping automatic credential injection.
+    url.searchParams.delete('token')
     url.searchParams.set(EMBEDDED_THEME_QUERY_KEY, theme)
     if (lang) {
       url.searchParams.set(EMBEDDED_LANG_QUERY_KEY, lang)
@@ -43,7 +51,10 @@ export function buildEmbeddedUrl(
     // Source tracking: let the embedded page know where it's being loaded from
     if (typeof window !== 'undefined') {
       url.searchParams.set(EMBEDDED_SRC_HOST_QUERY_KEY, window.location.origin)
-      url.searchParams.set(EMBEDDED_SRC_QUERY_KEY, window.location.href)
+      const sourceUrl = new URL(window.location.href)
+      sourceUrl.search = ''
+      sourceUrl.hash = ''
+      url.searchParams.set(EMBEDDED_SRC_QUERY_KEY, sourceUrl.toString())
     }
     return url.toString()
   } catch {

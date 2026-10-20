@@ -91,6 +91,17 @@ func prismBrowserResponsesURL(baseURL string) string {
 
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (result *OpenAIForwardResult, resultErr error) {
+	var finishMeter func(*OpenAIForwardResult, error) error
+	var meterErr error
+	ctx, finishMeter, meterErr = s.beginRegionalMeter(ctx, c, account, body)
+	if meterErr != nil {
+		return nil, meterErr
+	}
+	if regionalMeterAttemptFrom(ctx) != nil && c.Request != nil {
+		c.Request = c.Request.WithContext(ctx)
+	}
+	defer func() { resultErr = regionalMeterFinishForward(ctx, result, resultErr, finishMeter) }()
+	ctx = s.withRequestTimezoneEgress(ctx, account)
 	body = s.normalizeRequestTimezone(ctx, account, body, "http")
 	if astraSchedulingAppliesToRequest(s.cfg.AstraRouting(ctx), account, gjson.GetBytes(body, "model").String(), getOpenAIGroupIDFromContext(c)) {
 		if err := s.checkAstraSchedulingRoute(ctx, account); err != nil {
@@ -109,7 +120,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		requesttiming.Outcome(ctx, outcome, disconnected)
 	}()
 	defer requesttiming.Observe(ctx, "forward_attempt")()
-	latest, admissionErr := s.admitOpenAITurn(ctx, c, account, extractOpenAICodexTicketModel(body))
+	latest, admissionErr := s.admitOpenAITurn(ctx, c, account, extractOpenAICodexTicketModel(body), body)
 	if admissionErr != nil {
 		if errors.Is(admissionErr, errExcelOAuthRouteUnavailable) {
 			return nil, writeExcelOAuthRouteError(c)
@@ -117,6 +128,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return nil, markOpenAIInitialAdmissionError(admissionErr)
 	}
 	account = latest
+	ctx = withOpenAITransportRoute(ctx, "http", "native", "", "")
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
 	// A failed account attempt must not leave a bypass reason on a later BPS response.
@@ -164,14 +176,14 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return nil, err
 	}
 	if !account.IsExcelOAuth() && account.IsPrismBrowserEnabledForModel(modelForBPS) && s.prismBrowserGloballyEnabled(ctx) {
-		return s.forwardPrismBrowser(ctx, c, account, body, startTime)
+		return s.forwardPrismBrowser(withOpenAITransportMode(ctx, "prism_browser"), c, account, body, startTime)
 	}
 	if c.GetBool(bpsAccountProbeRequiredContextKey) &&
 		(!account.IsExcelBPSEnabledForModel(modelForBPS) || account.excelBPSNativeFallbackReason(body) != "") {
 		return nil, errors.New("bps probe path is unavailable")
 	}
 	if account.IsExcelBPSEnabledForModel(modelForBPS) && s.excelBPSGloballyEnabled(ctx) {
-		return s.forwardExcelBPS(ctx, c, account, body, startTime)
+		return s.forwardExcelBPS(withOpenAITransportMode(ctx, "bps"), c, account, body, startTime)
 	}
 
 	if account.IsOpenAIOAuthLike() {
@@ -200,7 +212,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if normalized {
 		body = normalizedBody
 	}
-	legacyIngressBody, legacyIngressChanged, legacyIngressErr := normalizeOpenAIResponsesLegacyIngress(body)
+	legacyIngressBody, legacyIngressChanged, legacyIngressErr := normalizeOpenAIResponsesLegacyIngressWithConfig(s.cfg, body)
 	if legacyIngressErr != nil {
 		return nil, legacyIngressErr
 	}
@@ -322,7 +334,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 
 	if (isOpenAINativeCompactionV2(c) && shouldForwardDeepSeekResponsesCompactViaChatCompletions(account, body)) ||
 		shouldForwardDeepSeekResponsesLiteViaChatCompletions(account, body) {
-		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
+		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body, startTime)
 	}
 	// 上游协议统一由 resolveUpstreamProtocol 判定（按模型分流时带上游模型目录）。OpenAI API Key 账号只会落到
 	// Responses / Chat Completions，上面的归一化对两条路径都生效。
@@ -337,7 +349,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		// 账号映射未命中时以去除首尾空白的请求模型兜底，计费名与上游模型名一致。
 		return s.forwardResponsesViaNativeAnthropic(ctx, c, account, body, reqModel)
 	case APIProtocolChatCompletions:
-		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
+		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body, startTime)
 	}
 	SetActualOpenAIUpstreamEndpoint(c, openAIResponsesUpstreamEndpoint)
 	if account.IsOpenAI() && (account.IsOpenAIApiKey() || account.IsOpenAIOAuthLike()) {
@@ -377,6 +389,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		c.Set("openai_ws_transport_decision", string(wsDecision.Transport))
 		c.Set("openai_ws_transport_reason", wsDecision.Reason)
 	}
+	ctx = withOpenAITransportRoute(ctx, "http", "native", wsDecision.Reason, "")
 	if wsDecision.Transport == OpenAIUpstreamTransportResponsesWebsocketV2 {
 		logOpenAIWSModeDebug(
 			"selected account_id=%d account_type=%s transport=%s reason=%s model=%s stream=%v",
@@ -1216,6 +1229,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		reqBody = nil
 		c.Set("openai_ws_transport_decision", string(OpenAIUpstreamTransportHTTPSSE))
 		c.Set("openai_ws_transport_reason", fallbackReason)
+		ctx = withOpenAITransportRoute(ctx, "http", "native", fallbackReason, fallbackReason)
 	}
 
 	reasoningEffort := extractOpenAIReasoningEffortFromBody(body, upstreamModel, billingModel, originalModel)
@@ -1930,6 +1944,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	applyOpenAICodexBetaFeatures(c, account, req.Header)
 	setOpenAICodexRoutingHintFromBody(req.Header, account, body)
 	logOpenAIRoutingDiagnosticsFromBody(ctx, account, "http", req.Header, body, "not_applicable")
+	if c != nil && c.Request != nil {
+		s.requestTimezoneHeaders(ctx, account, c.Request.Header, req.Header)
+	}
 	s.pinBoundCodexTicketHarvestIdentity(req, account)
 
 	if err := applyMappedGPT55LiteCompatibility(req, account, body); err != nil {

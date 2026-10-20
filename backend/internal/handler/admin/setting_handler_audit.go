@@ -67,6 +67,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.FrontendURL != after.FrontendURL {
 		changed = append(changed, "frontend_url")
 	}
+	if before.LoginRateLimitEnabled != after.LoginRateLimitEnabled {
+		changed = append(changed, "login_rate_limit_enabled")
+	}
 	if before.TotpEnabled != after.TotpEnabled {
 		changed = append(changed, "totp_enabled")
 	}
@@ -504,6 +507,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.OpenAIRequestTimezoneEnabled != after.OpenAIRequestTimezoneEnabled {
 		changed = append(changed, "openai_request_timezone_enabled")
+	}
+	if before.OpenAIRequestTimezoneAuto != after.OpenAIRequestTimezoneAuto {
+		changed = append(changed, "openai_request_timezone_auto")
 	}
 	if before.OpenAICodexTicketEnabled != after.OpenAICodexTicketEnabled {
 		changed = append(changed, "openai_codex_ticket_enabled")

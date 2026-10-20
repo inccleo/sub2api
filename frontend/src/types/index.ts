@@ -297,6 +297,10 @@ export interface PublicSettings {
   allow_user_view_error_requests?: boolean
   /** Usage 表中长上下文计费 x2 徽标的展示开关（后端默认开启，缺失时按开启处理） */
   usage_show_long_context_badge?: boolean
+  /** 使用记录单条缓存率。缺失时按开启处理。 */
+  usage_show_cache_rate?: boolean
+  /** 是否向终端用户展示单条缓存率。缺失时按关闭处理。 */
+  usage_show_cache_rate_to_users?: boolean
 }
 
 export interface AuthResponse {
@@ -575,6 +579,16 @@ export interface ReasoningEffortMapping {
   model?: string
 }
 
+/** 分组名称与描述在某个语言下的译文；字段为空表示沿用分组自身的 name/description。 */
+export interface GroupLocaleText {
+  name?: string
+  description?: string
+}
+
+/** 以语言代码（en、zh…）为键的分组文案译文。 */
+export type GroupI18n = Record<string, GroupLocaleText>
+
+// 用户侧接口返回的 name / description 已由后端按请求语言（Accept-Language）选好
 export interface Group {
   id: number
   name: string
@@ -638,10 +652,14 @@ export interface Group {
 }
 
 export interface AdminGroup extends Group {
+  // 管理端的 name / description 始终是原字段，各语言译文另放在 i18n 里
+  i18n?: GroupI18n
   force_openai_fast: boolean
   free_openai_fast: boolean
   // 仅允许流式请求（管理端请求策略，用户侧分组不返回）
   stream_only: boolean
+  codex_cli_only?: boolean
+  block_subagents?: boolean
   model_pricing: import('@/api/admin/channels').ChannelModelPricing[]
   // 分组利润控制（openai/anthropic/gemini/grok/antigravity 分组可启用；margin/buffer 为小数存储）。
   // 仅管理员可见：与 rate_multiplier 相乘即可反推上游成本上限，不得下放到 Group。
@@ -774,6 +792,7 @@ export interface ApiKey {
   reset_5h_at: string | null
   reset_1d_at: string | null
   reset_7d_at: string | null
+  group_ids?: number[]
 }
 
 export interface ApiKeyConcurrencySnapshot {
@@ -800,6 +819,7 @@ export interface CreateApiKeyRequest {
   rate_limit_5h?: number
   rate_limit_1d?: number
   rate_limit_7d?: number
+  group_ids?: number[]
 }
 
 export interface UpdateApiKeyRequest {
@@ -816,11 +836,13 @@ export interface UpdateApiKeyRequest {
   rate_limit_1d?: number
   rate_limit_7d?: number
   reset_rate_limit_usage?: boolean
+  group_ids?: number[]
 }
 
 export interface CreateGroupRequest {
   name: string
   description?: string | null
+  i18n?: GroupI18n
   platform?: GroupPlatform
   rate_multiplier?: number
   is_exclusive?: boolean
@@ -832,6 +854,8 @@ export interface CreateGroupRequest {
   force_openai_fast?: boolean
   free_openai_fast?: boolean
   stream_only?: boolean
+  codex_cli_only?: boolean
+  block_subagents?: boolean
   model_pricing?: import('@/api/admin/channels').ChannelModelPricing[]
   allow_image_generation?: boolean
   allow_batch_image_generation?: boolean
@@ -887,6 +911,7 @@ export interface CreateGroupRequest {
 export interface UpdateGroupRequest {
   name?: string
   description?: string | null
+  i18n?: GroupI18n
   platform?: GroupPlatform
   rate_multiplier?: number
   is_exclusive?: boolean
@@ -899,6 +924,8 @@ export interface UpdateGroupRequest {
   force_openai_fast?: boolean
   free_openai_fast?: boolean
   stream_only?: boolean
+  codex_cli_only?: boolean
+  block_subagents?: boolean
   model_pricing?: import('@/api/admin/channels').ChannelModelPricing[]
   allow_image_generation?: boolean
   allow_batch_image_generation?: boolean
@@ -1043,6 +1070,7 @@ export interface ProxyQualityCheckResult {
 export interface GeminiCredentials {
   // API Key authentication
   api_key?: string
+  base_url?: string
 
   // OAuth authentication
   access_token?: string
@@ -1067,11 +1095,15 @@ export interface GeminiCredentials {
   model_mapping?: Record<string, string>
 }
 
+export type TempUnschedulableScope = 'account' | 'model'
+
 export interface TempUnschedulableRule {
   error_code: number
   keywords: string[]
   duration_minutes: number
   description: string
+  // 作用范围：account 暂停整个账号，model 只冷却本次请求的模型；缺省时 401 按 account、其余按 model 处理。
+  scope?: TempUnschedulableScope
 }
 
 export interface TempUnschedulableState {
@@ -1079,6 +1111,8 @@ export interface TempUnschedulableState {
   triggered_at_unix: number
   status_code: number
   matched_keyword: string
+  scope?: TempUnschedulableScope
+  model?: string
   rule_index: number
   error_message: string
   trigger_count?: number
@@ -1093,7 +1127,7 @@ export interface TempUnschedulableStatus {
 
 export interface UpstreamBillingData {
   object: 'sub2api.key_billing' | 'new_api.group_billing'
-  schema_version: 1
+  schema_version: 1 | 2
   billing_scope: 'token' | 'group'
   provider?: 'new_api'
   group?: string
@@ -1109,6 +1143,15 @@ export interface UpstreamBillingData {
   effective_rate_multiplier?: number
   timezone?: string
   observed_at: string
+  billing_mode?: 'multi_group'
+  min_rate_multiplier?: number
+  max_rate_multiplier?: number
+  groups?: Array<UpstreamBillingData & {
+    group_id: number
+    group_name: string
+    platform: string
+    status: 'active' | 'inactive'
+  }>
 }
 
 export type UpstreamBillingProbeStatus = 'ok' | 'unsupported' | 'failed'
@@ -2641,7 +2684,7 @@ export interface QualityBPSPolicy {
 export interface QualityPolicy {
   judge?: QualityJudgeConfig
   expected_answer: string
-  action: 'remove_groups' | 'remove_models' | 'disable_scheduling' | 'enable_bps' | 'observe_only'
+  action: 'isolate_models' | 'remove_groups' | 'remove_models' | 'disable_scheduling' | 'enable_bps' | 'observe_only'
   remove_group_ids: number[]
   remove_models?: string[]
   recovery_concurrency?: number
@@ -2654,7 +2697,9 @@ export interface PelicanTestConfig {
   quality_model_actions?: Record<string, string>
   trigger_source?: string
   quality?: QualityPolicy
-  question_kind?: 'candy' | 'pelican' | 'state_probe'
+  question_kind?: 'candy' | 'pelican' | 'state_probe' | 'random_reasoning'
+  // Result-only identity of a runtime-generated question.
+  random_question?: { id: string; family: 'paths' | 'weighted_xor'; version: string }
   test_channel?: 'account' | 'bps'
   prompt: string
   reasoning_effort: string

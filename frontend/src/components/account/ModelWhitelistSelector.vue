@@ -208,8 +208,7 @@ const upstreamSyncPlatforms = new Set([
   'zhipu',
   'deepseek',
   'minimax',
-  'opencode_go',
-  'typesafe'
+  'opencode_go'
 ])
 const canSyncUpstream = computed(() => {
   const supportsSync = (platform: string) =>

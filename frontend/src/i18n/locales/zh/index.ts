@@ -1,4 +1,9 @@
 import desktopAuth from './desktopAuth'
+import ipAudit from './ipAudit'
+import traffic from './traffic'
+import connections from './connections'
+import securityRecords from './securityRecords'
+import siwc from './siwc'
 import priorityScheduling from './priorityScheduling'
 import qualityOps from './qualityOps'
 import controlledExperiments from './controlledExperiments'
@@ -24,6 +29,11 @@ import autoConfig from './autoConfig'
 
 export default {
   desktopAuth,
+  traffic,
+  ipAudit,
+  connections,
+  securityRecords,
+  siwc,
   autoConfig,
   priorityScheduling,
   qualityOps,

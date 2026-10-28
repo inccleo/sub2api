@@ -15,7 +15,11 @@ import (
 // ProvideImageWorkbenchHandler wires both the legacy async image APIs and the
 // image-chat BFF.
 func ProvideImageWorkbenchHandler(apiKeys *service.APIKeyService, auth middleware.APIKeyAuthMiddleware, async *AsyncImageHandler, cfg *config.Config, accounts service.AccountRepository) *ImageWorkbenchHandler {
-	resolver := newAccountImageWorkbenchUpstreamResolver(accounts)
+	requiredBaseURL := ""
+	if cfg != nil && cfg.ImageChat.Enabled {
+		requiredBaseURL = cfg.ImageChat.BaseURL
+	}
+	resolver := newAccountImageWorkbenchUpstreamResolver(accounts, requiredBaseURL)
 	h := NewImageWorkbenchHandler(apiKeys, auth, async)
 	h.SetImageChatConfig(cfg)
 	h.SetUpstreamResolver(resolver)

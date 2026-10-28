@@ -23,12 +23,25 @@ type imageWorkbenchUpstreamResolver interface {
 // OpenAI account bound to the caller's image group. Reusing the generation
 // account keeps the model picker aligned with what can actually run and avoids
 // duplicating the downstream credential in configuration.
+//
+// When requiredBaseURL is set (the configured image_chat destination), only
+// accounts pointing at that chatgpt2api instance qualify. Otherwise any other
+// relay bound to an image-enabled group would also count as an upstream and
+// could win the workbench group selection.
 type accountImageWorkbenchUpstreamResolver struct {
-	accounts service.AccountRepository
+	accounts        service.AccountRepository
+	requiredBaseURL string
 }
 
-func newAccountImageWorkbenchUpstreamResolver(accounts service.AccountRepository) *accountImageWorkbenchUpstreamResolver {
-	return &accountImageWorkbenchUpstreamResolver{accounts: accounts}
+func newAccountImageWorkbenchUpstreamResolver(accounts service.AccountRepository, requiredBaseURL string) *accountImageWorkbenchUpstreamResolver {
+	return &accountImageWorkbenchUpstreamResolver{
+		accounts:        accounts,
+		requiredBaseURL: normalizeImageWorkbenchBaseURL(requiredBaseURL),
+	}
+}
+
+func normalizeImageWorkbenchBaseURL(raw string) string {
+	return strings.TrimRight(strings.TrimSpace(raw), "/")
 }
 
 func (r *accountImageWorkbenchUpstreamResolver) ResolveImageWorkbenchUpstream(ctx context.Context, groupID int64) (*imageWorkbenchUpstream, error) {
@@ -42,8 +55,8 @@ func (r *accountImageWorkbenchUpstreamResolver) ResolveImageWorkbenchUpstream(ct
 	// Only custom-endpoint accounts carry a base_url, so this skips official
 	// upstreams without needing to special-case account types.
 	for i := range accounts {
-		base := strings.TrimRight(strings.TrimSpace(accounts[i].GetCredential("base_url")), "/")
-		if base == "" {
+		base := normalizeImageWorkbenchBaseURL(accounts[i].GetCredential("base_url"))
+		if base == "" || (r.requiredBaseURL != "" && !strings.EqualFold(base, r.requiredBaseURL)) {
 			continue
 		}
 		return &imageWorkbenchUpstream{

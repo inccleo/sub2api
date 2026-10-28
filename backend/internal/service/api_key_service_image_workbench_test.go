@@ -374,3 +374,28 @@ func TestGetOrCreateImageWorkbenchKeyFallsBackWhenNoGroupHasUpstream(t *testing.
 	require.NotNil(t, key.GroupID)
 	require.Equal(t, int64(2), *key.GroupID)
 }
+
+// Strict image-chat routing must not create or retain keys on a rejected relay.
+func TestImageWorkbenchRejectsAllFilteredGroupsWhenImageChatEnabled(t *testing.T) {
+	for _, existingKey := range []bool{false, true} {
+		t.Run(map[bool]string{false: "new", true: "existing"}[existingKey], func(t *testing.T) {
+			groupID := int64(2)
+			repo := newImageWorkbenchAPIKeyRepoStub()
+			if existingKey {
+				repo = newImageWorkbenchAPIKeyRepoStub(APIKey{ID: 244, UserID: 7, Key: "sk-iwb-existing", Name: ImageWorkbenchAPIKeyName, GroupID: &groupID, Status: StatusActive})
+			}
+			svc := newImageWorkbenchAPIKeyService(repo, imageWorkbenchGroupWithSort(2, 0), imageWorkbenchGroupWithSort(18, 40))
+			svc.cfg.ImageChat.Enabled = true
+			svc.SetImageWorkbenchGroupFilter(func(context.Context, int64) bool { return false })
+			before, _ := repo.snapshot()
+			key, err := svc.GetOrCreateImageWorkbenchKey(context.Background(), 7)
+			require.ErrorIs(t, err, ErrImageWorkbenchUnavailable)
+			require.Nil(t, key)
+			_, err = svc.GetImageWorkbenchGroupID(context.Background(), 7)
+			require.ErrorIs(t, err, ErrImageWorkbenchUnavailable)
+			after, creates := repo.snapshot()
+			require.Zero(t, creates)
+			require.Equal(t, before, after)
+		})
+	}
+}

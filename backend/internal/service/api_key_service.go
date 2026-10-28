@@ -1237,6 +1237,10 @@ func (s *APIKeyService) selectImageWorkbenchGroup(ctx context.Context, userID in
 	}
 	selectedPool, availablePool := eligible, eligible
 	if len(eligible) == 0 {
+		// Strict image-chat routing must never fall back to a rejected relay.
+		if s.cfg != nil && s.cfg.ImageChat.Enabled {
+			return nil, nil, ErrImageWorkbenchUnavailable
+		}
 		selectedPool, availablePool = candidates, candidates
 	}
 

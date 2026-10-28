@@ -302,6 +302,33 @@ func TestGetImageWorkbenchGroupIDSkipsGroupWithoutUpstream(t *testing.T) {
 	require.Equal(t, int64(18), groupID)
 }
 
+// 生产回归：两个分组都能连到自定义上游时，已绑定在分组 18 的托管 Key 会被保留，
+// 模型目录也必须读分组 18，而不是按 sort_order 选到分组 2。
+func TestGetImageWorkbenchGroupIDFollowsBoundKeyGroup(t *testing.T) {
+	boundGroupID := int64(18)
+	existing := APIKey{
+		ID:      244,
+		UserID:  7,
+		Key:     "sk-iwb-existing-managed-credential",
+		Name:    ImageWorkbenchAPIKeyName,
+		GroupID: &boundGroupID,
+		Status:  StatusActive,
+	}
+	repo := newImageWorkbenchAPIKeyRepoStub(existing)
+	svc := newImageWorkbenchAPIKeyService(repo,
+		imageWorkbenchGroupWithSort(2, 0),
+		imageWorkbenchGroupWithSort(18, 40),
+	)
+	svc.SetImageWorkbenchGroupFilter(func(context.Context, int64) bool { return true })
+
+	groupID, err := svc.GetImageWorkbenchGroupID(context.Background(), 7)
+	require.NoError(t, err)
+	require.Equal(t, int64(18), groupID)
+
+	_, createCalls := repo.snapshot()
+	require.Zero(t, createCalls)
+}
+
 // 已存在的托管 Key 若仍指向不合格分组，必须被改绑，否则生图依旧打到官方账号上。
 func TestGetOrCreateImageWorkbenchKeyRepointsKeyFromIneligibleGroup(t *testing.T) {
 	ineligibleGroupID := int64(2)
@@ -346,4 +373,29 @@ func TestGetOrCreateImageWorkbenchKeyFallsBackWhenNoGroupHasUpstream(t *testing.
 	require.NoError(t, err)
 	require.NotNil(t, key.GroupID)
 	require.Equal(t, int64(2), *key.GroupID)
+}
+
+// Strict image-chat routing must not create or retain keys on a rejected relay.
+func TestImageWorkbenchRejectsAllFilteredGroupsWhenImageChatEnabled(t *testing.T) {
+	for _, existingKey := range []bool{false, true} {
+		t.Run(map[bool]string{false: "new", true: "existing"}[existingKey], func(t *testing.T) {
+			groupID := int64(2)
+			repo := newImageWorkbenchAPIKeyRepoStub()
+			if existingKey {
+				repo = newImageWorkbenchAPIKeyRepoStub(APIKey{ID: 244, UserID: 7, Key: "sk-iwb-existing", Name: ImageWorkbenchAPIKeyName, GroupID: &groupID, Status: StatusActive})
+			}
+			svc := newImageWorkbenchAPIKeyService(repo, imageWorkbenchGroupWithSort(2, 0), imageWorkbenchGroupWithSort(18, 40))
+			svc.cfg.ImageChat.Enabled = true
+			svc.SetImageWorkbenchGroupFilter(func(context.Context, int64) bool { return false })
+			before, _ := repo.snapshot()
+			key, err := svc.GetOrCreateImageWorkbenchKey(context.Background(), 7)
+			require.ErrorIs(t, err, ErrImageWorkbenchUnavailable)
+			require.Nil(t, key)
+			_, err = svc.GetImageWorkbenchGroupID(context.Background(), 7)
+			require.ErrorIs(t, err, ErrImageWorkbenchUnavailable)
+			after, creates := repo.snapshot()
+			require.Zero(t, creates)
+			require.Equal(t, before, after)
+		})
+	}
 }

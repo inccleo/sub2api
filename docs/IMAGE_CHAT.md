@@ -23,20 +23,20 @@
 
 模型列表不再硬编码，按以下顺序解析：
 
-1. 取当前用户可用的生图分组，并**只保留能连到 chatgpt2api 的分组**（即该分组下存在带 `base_url` 凭据的可调度 OpenAI 账号），在其中取排序最靠前的那个，用其账号的 `base_url` + `api_key` 作为上游。
+1. 获取或创建当前用户的工作台专用密钥，使用它**实际绑定的分组**读取模型。启用 `image_chat` 时，只有可调度 OpenAI 账号的 `base_url` 与 `image_chat.base_url` 匹配的分组才合格；新密钥按排序选择合格分组，已有密钥保留合格绑定。原绑定不合格时仅改绑工作台专用密钥，不调整用户自己的 API 密钥。
 2. 请求 `GET /api/model-catalog`，直接使用返回的 `image_models`（chatgpt2api 新版本，包含 `plus-codex-gpt-image-2` 这类按账号派生的模型）。
 3. 上游版本较旧没有该接口时，退回请求 `GET /v1/models` 并过滤出带 `image` 标记的模型 ID。
 4. 上游不可达时使用内置的兜底列表，接口返回 `"source": "fallback"`，页面提示使用内置模型。
 
 > `allow_image_generation` 只是计费/权益开关，不代表该分组的账号能连到 chatgpt2api。若按排序选中了只有官方账号（无 `base_url`）的分组，模型目录与异步生图端点都无法解析，页面会一直提示使用内置模型。因此分组选择与上游解析共用同一套规则：选中的分组同时决定模型列表来源和生图流量去向。
 >
-> 若所有分组都不满足条件，会退回按排序选择，保证工作台仍可用。
+> 启用 `image_chat` 时，若所有可用分组都不满足条件，工作台返回不可用，不回退到其他中转分组；关闭 `image_chat` 时保留原有按排序回退行为。
 
 结果按上游地址做 5 分钟缓存，避免频繁刷新页面反复请求 chatgpt2api。
 
-### 可选：直接指定下游地址
+### 配置 chatgpt2api 地址
 
-分组账号不可用时（例如只想单独暴露一个模型目录），可以在 `config.yaml` 或环境变量中配置 `image_chat`：
+`image_chat` 默认启用，默认地址为 `http://127.0.0.1:3002`。可以在 `config.yaml` 或环境变量中配置：
 
 ```yaml
 image_chat:
@@ -46,4 +46,4 @@ image_chat:
   timeout_seconds: 300
 ```
 
-对应环境变量为 `IMAGE_CHAT_ENABLED`、`IMAGE_CHAT_BASE_URL`、`IMAGE_CHAT_API_KEY` 和 `IMAGE_CHAT_TIMEOUT_SECONDS`。配置的地址只在分组账号解析失败时用于读取模型列表。
+对应环境变量为 `IMAGE_CHAT_ENABLED`、`IMAGE_CHAT_BASE_URL`、`IMAGE_CHAT_API_KEY` 和 `IMAGE_CHAT_TIMEOUT_SECONDS`。启用时，配置地址用于分组账号准入匹配；分组账号解析失败时也可用于读取模型目录，但这不会绕过生成任务的分组准入检查。

@@ -1275,12 +1275,19 @@ func (s *APIKeyService) imageWorkbenchGroupEligible(ctx context.Context, groupID
 	return s.imageWorkbenchGroupFilter(ctx, groupID)
 }
 
+// GetImageWorkbenchGroupID returns the group bound to the managed workbench key,
+// i.e. the group generation actually runs on. Re-running the sort_order
+// selection here can pick a different eligible group than the one an existing
+// key stays bound to, and the model catalog would then query the wrong upstream.
 func (s *APIKeyService) GetImageWorkbenchGroupID(ctx context.Context, userID int64) (int64, error) {
-	_, selected, err := s.selectImageWorkbenchGroup(ctx, userID)
+	key, err := s.GetOrCreateImageWorkbenchKey(ctx, userID)
 	if err != nil {
 		return 0, err
 	}
-	return selected.ID, nil
+	if key.GroupID == nil {
+		return 0, ErrImageWorkbenchUnavailable
+	}
+	return *key.GroupID, nil
 }
 
 func (s *APIKeyService) GetOrCreateImageWorkbenchKey(ctx context.Context, userID int64) (*APIKey, error) {

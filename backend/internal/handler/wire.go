@@ -227,6 +227,7 @@ func ProvideAdminSettingHandler(settingService *service.SettingService, emailSer
 
 // ProvideHandlers creates the Handlers struct
 func ProvideHandlers(
+	lotteryHandler *LotteryHandler,
 	authHandler *AuthHandler,
 	desktopAuthHandler *DesktopAuthHandler,
 	userHandler *UserHandler,
@@ -260,6 +261,7 @@ func ProvideHandlers(
 ) *Handlers {
 	return &Handlers{
 		DesktopAuth:      desktopAuthHandler,
+		Lottery:          lotteryHandler,
 		Auth:             authHandler,
 		User:             userHandler,
 		APIKey:           apiKeyHandler,
@@ -292,6 +294,7 @@ func ProvideHandlers(
 // ProviderSet is the Wire provider set for all handlers
 var ProviderSet = wire.NewSet(
 	// Top-level handlers
+	NewLotteryHandler,
 	NewAuthHandler,
 	NewDesktopAuthHandler,
 	NewUserHandler,

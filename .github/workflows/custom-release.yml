@@ -114,10 +114,14 @@ jobs:
             -o ../dist/sub2api \
             ./cmd/server
           asset="sub2api_${TAG}_linux_amd64.tar.gz"
-          tar -C dist -czf "release-assets/${asset}" sub2api
+          cp LICENSE THIRD_PARTY_NOTICES.md CUSTOM_RELEASE_BUILD.md dist/
+          cp -R LICENSES dist/
+          tar -C dist -czf "release-assets/${asset}" sub2api LICENSE LICENSES THIRD_PARTY_NOTICES.md CUSTOM_RELEASE_BUILD.md
+          source_asset="sub2api_${TAG}_source.tar.gz"
+          git archive --format=tar.gz --prefix="sub2api-${TAG}/" "$commit" > "release-assets/${source_asset}"
           (
             cd release-assets
-            sha256sum "$asset" > checksums.txt
+            sha256sum "$asset" "$source_asset" > checksums.txt
           )
           printf '{\n  "tag": "%s",\n  "version": "%s",\n  "commit": "%s",\n  "upstream": "ranxi2001/sub2api"\n}\n' \
             "$TAG" "$VERSION" "$commit" > release-assets/release-manifest.json

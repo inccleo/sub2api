@@ -1,5 +1,7 @@
 import desktopAuth from './desktopAuth'
+import autoCredit from './autoCredit'
 import accountPerformance from './accountPerformance'
+import apiKeyModelPolicy from './apiKeyModelPolicy'
 import lottery from './lottery'
 import accountTestTiming from './accountTestTiming'
 import openaiAuth from './openaiAuth'
@@ -16,6 +18,8 @@ import priorityScheduling from './priorityScheduling'
 import qualityOps from './qualityOps'
 import controlledExperiments from './controlledExperiments'
 import accountOps from './accountOps'
+import aiOps from './aiOps'
+import aiOpsControl from './aiOpsControl'
 import tokenGuard from './tokenGuard'
 import pelicanTests from './pelicanTests'
 import modelTrace from './modelTrace'
@@ -39,6 +43,8 @@ import autoConfig from './autoConfig'
 
 export default {
   desktopAuth,
+  apiKeyModelPolicy,
+  autoCredit,
  accountPerformance,
 	lottery,
   accountTestTiming,
@@ -57,6 +63,8 @@ export default {
   profitOps,
   controlledExperiments,
   accountOps,
+  aiOps,
+  aiOpsControl,
   tokenGuard,
   pelicanTests,
   modelTrace,

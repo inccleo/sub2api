@@ -52,7 +52,8 @@ apiClient.interceptors.request.use(
     }
 
     // Attach timezone for all GET requests (backend may use it for default date ranges)
-    if (config.method === 'get') {
+    const isAIOpsRequest = String(config.url || '').split(/[?#]/, 1)[0].startsWith('/admin/ops/ai/')
+    if (config.method === 'get' && !isAIOpsRequest) {
       if (!config.params) {
         config.params = {}
       }

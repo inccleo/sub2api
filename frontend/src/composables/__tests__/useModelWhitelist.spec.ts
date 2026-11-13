@@ -4,7 +4,7 @@ vi.mock('@/api/admin/accounts', () => ({
   getAntigravityDefaultModelMapping: vi.fn()
 }))
 
-import { buildModelMappingObject, getModelsByPlatform, getPresetMappingsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
+import { buildModelMappingObject, getModelsByPlatform, getPresetMappingsByPlatform, reconcileUpstreamModelMapping, splitModelMappingObject } from '../useModelWhitelist'
 import { BUILTIN_PLATFORM_CATALOG, resetPlatformCatalog, setPlatformCatalog } from '@/constants/platformCatalog'
 
 describe('useModelWhitelist', () => {
@@ -97,6 +97,25 @@ describe('useModelWhitelist', () => {
     expect(getModelsByPlatform('antigravity')).not.toContain('claude-sonnet-5-5')
     expect(getModelsByPlatform('claude')).toContain('claude-opus-4-8')
     expect(getModelsByPlatform('antigravity')).toContain('claude-opus-4-8')
+  })
+
+  it.each([
+    ['claude-fable-5-2', 'Fable 5.2'],
+    ['claude-mythos-5-2', 'Mythos 5.2']
+  ])('preserves %s in Anthropic whitelists and presets without inventing provider mappings', (model, label) => {
+    for (const platform of ['claude', 'anthropic']) {
+      const models = getModelsByPlatform(platform)
+      expect(models).toContain(model)
+      expect(buildModelMappingObject('whitelist', models, [])?.[model]).toBe(model)
+      expect(getPresetMappingsByPlatform(platform)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ label, from: model, to: model })
+      ]))
+    }
+    expect(getPresetMappingsByPlatform('bedrock')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label, from: model, to: `anthropic.${model}` })
+    ]))
+    expect(getModelsByPlatform('antigravity')).not.toContain(model)
+    expect(getPresetMappingsByPlatform('antigravity').some(mapping => mapping.from === model)).toBe(false)
   })
 
   it('Claude Sonnet 5.5 预设使用各平台的官方模型 ID', () => {
@@ -248,6 +267,57 @@ describe('useModelWhitelist', () => {
   it('combined mode retains a mapping when a whitelist entry has the same source', () => {
     expect(buildModelMappingObject('combined', ['gpt-latest'], [{ from: 'gpt-latest', to: 'deepseek-chat' }])).toEqual({
       'gpt-latest': 'deepseek-chat'
+    })
+  })
+
+  it('reconciles only concrete upstream models and preserves live alias targets', () => {
+    const existingMappings = [
+      { from: 'public-alias', to: 'target' },
+      { from: 'retired-alias', to: 'retired-target' },
+      { from: 'legacy-*', to: 'target' },
+      { from: 'tar*get', to: 'target' },
+      { from: 'wildcard-target', to: 'tar*' },
+      { from: 'target', to: 'target' },
+      { from: ' ', to: 'target' }
+    ]
+    const models = [' target ', 'target', '', ' ', '*', 'retired-*']
+    const before = structuredClone({ models, existingMappings })
+
+    const reconciled = reconcileUpstreamModelMapping(models, existingMappings)
+
+    expect(reconciled.allowedModels).toEqual(['target'])
+    expect(reconciled.modelMappings).toEqual([
+      { from: 'public-alias', to: 'target' },
+      { from: 'legacy-*', to: 'target' }
+    ])
+    expect({ models, existingMappings }).toEqual(before)
+  })
+
+  it('does not replace a live redirect with an upstream identity of the same name', () => {
+    const reconciled = reconcileUpstreamModelMapping(
+      ['public-model', 'target'],
+      [{ from: 'public-model', to: 'target' }]
+    )
+
+    expect(reconciled).toEqual({
+      allowedModels: ['target'],
+      modelMappings: [{ from: 'public-model', to: 'target' }]
+    })
+    expect(buildModelMappingObject('combined', reconciled.allowedModels, reconciled.modelMappings)).toEqual({
+      target: 'target',
+      'public-model': 'target'
+    })
+  })
+
+  it('drops alias chains when the immediate target is absent from the live catalog', () => {
+    const reconciled = reconcileUpstreamModelMapping(
+      ['target'],
+      [{ from: 'alias', to: 'target' }, { from: 'chained-alias', to: 'alias' }]
+    )
+
+    expect(reconciled).toEqual({
+      allowedModels: ['target'],
+      modelMappings: [{ from: 'alias', to: 'target' }]
     })
   })
 

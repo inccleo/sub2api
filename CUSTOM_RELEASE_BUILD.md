@@ -17,6 +17,15 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -C backend \
 ```
 
 The frontend build writes `backend/internal/web/dist`, which the server embeds.
+Run it from the exact release checkout before compiling the server; an existing
+dist from a previous checkout can otherwise embed stale pages in a new binary.
+Before packaging, run `make test-frontend` and the recharge order regression
+from `backend`:
+
+```sh
+go test -tags=unit ./internal/service -run '^TestCreateOrderPreservesRechargePackages$' -count=1
+```
+
 The release manifest records the exact version and source commit. The custom
 workflow adds version, commit, UTC build date, and release type using Go linker
 flags; see `.github/workflows/custom-release.yml` for those flags and packaging.

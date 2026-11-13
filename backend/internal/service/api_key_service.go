@@ -13,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -65,15 +66,16 @@ const (
 // 因此调用方必须显式声明要改的列。
 type APIKeyUpdateFields struct {
 	// Administrator-only policy fields have independent masks to preserve concurrent edits.
-	ModelMapping     bool
-	ReasoningEffort  bool
-	AllowLongContext bool
-	ConcurrencyLimit bool
-	Name             bool
-	Status           bool
-	Quota            bool
-	GroupID          bool
-	ExpiresAt        bool
+	ModelMapping      bool
+	ReasoningEffort   bool
+	ContextTokenLimit bool
+	AllowLongContext  bool
+	ConcurrencyLimit  bool
+	Name              bool
+	Status            bool
+	Quota             bool
+	GroupID           bool
+	ExpiresAt         bool
 	// QuotaUsed 仅供"重置配额用量"路径声明；常规计费走 IncrementQuotaUsed。
 	QuotaUsed bool
 	// RateLimits 覆盖 rate_limit_5h / _1d / _7d 三个阈值。
@@ -810,7 +812,8 @@ func (s *APIKeyService) GetByKey(ctx context.Context, key string) (*APIKey, erro
 	if s.cfg != nil && s.cfg.Runtime.Role == config.RuntimeRoleGateway && s.cfg.Runtime.RegionalAuthFile != "" {
 		return nil, ErrRegionalAuthUnavailable
 	}
-	if len(key) == 0 || len(key) > MaxAPIKeyCredentialBytes {
+	// Reject malformed credentials before any cache or PostgreSQL lookup.
+	if len(key) == 0 || len(key) > MaxAPIKeyCredentialBytes || !utf8.ValidString(key) {
 		return nil, ErrAPIKeyNotFound
 	}
 	cacheKey := s.authCacheKey(key)
@@ -875,7 +878,7 @@ func (s *APIKeyService) GetByKeyUncached(ctx context.Context, key string) (*APIK
 	if s.cfg != nil && s.cfg.Runtime.Role == config.RuntimeRoleGateway && s.cfg.Runtime.RegionalAuthFile != "" {
 		return nil, ErrRegionalAuthUnavailable
 	}
-	if len(key) == 0 || len(key) > MaxAPIKeyCredentialBytes {
+	if len(key) == 0 || len(key) > MaxAPIKeyCredentialBytes || !utf8.ValidString(key) {
 		return nil, ErrAPIKeyNotFound
 	}
 	apiKey, err := s.lookupAPIKeyForAuth(ctx, key)
